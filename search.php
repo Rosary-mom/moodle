@@ -1,94 +1,110 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-// searches for admin settings
+/**
+ * Displays external information about a course
+ * @package    core_course
+ * @copyright  1999 onwards Martin Dougiamas  http://dougiamas.com
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
-require_once('../config.php');
-require_once($CFG->libdir.'/adminlib.php');
+require_once("../config.php");
+require_once($CFG->dirroot.'/course/lib.php');
 
-redirect_if_major_upgrade_required();
+$q         = optional_param('q', '', PARAM_RAW);       // Global search words.
+$search    = optional_param('search', '', PARAM_RAW);  // search words
+$page      = optional_param('page', 0, PARAM_INT);     // which page to show
+$perpage   = optional_param('perpage', '', PARAM_RAW); // how many per page, may be integer or 'all'
+$blocklist = optional_param('blocklist', 0, PARAM_INT);
+$modulelist= optional_param('modulelist', '', PARAM_PLUGIN);
+$tagid     = optional_param('tagid', '', PARAM_INT);   // searches for courses tagged with this tag id
 
-$query = trim(optional_param('query', '', PARAM_NOTAGS));  // Search string
-
-$context = context_system::instance();
-$PAGE->set_context($context);
-
-// If we are performing a search we need to display the secondary navigation with links as opposed to just anchors.
-// NOTE: hassecondarynavigation will be overridden in classic.
-$PAGE->set_secondary_navigation(true, !$query);
-
-$hassiteconfig = has_capability('moodle/site:config', $context);
-
-if ($hassiteconfig && moodle_needs_upgrading()) {
-    redirect(new moodle_url('/admin/index.php'));
+// Use global search.
+if ($q) {
+    $search = $q;
 }
 
-// If site registration needs updating, redirect.
-\core\hub\registration::registration_reminder('/admin/search.php');
+// List of minimum capabilities which user need to have for editing/moving course
+$capabilities = array('moodle/course:create', 'moodle/category:manage');
 
-admin_externalpage_setup('search', '', array('query' => $query)); // now hidden page
-$PAGE->set_heading(get_string('administrationsite')); // Has to be after setup since it has its' own heading set_heading.
+// Populate usercatlist with list of category id's with course:create and category:manage capabilities.
+$usercatlist = core_course_category::make_categories_list($capabilities);
 
-$adminroot = admin_get_root(); // need all settings here
-$adminroot->search = $query; // So we can reference it in search boxes later in this invocation
-$statusmsg = '';
-$errormsg  = '';
-$focus = '';
+$search = trim(strip_tags($search)); // trim & clean raw searched string
 
-// now we'll deal with the case that the admin has submitted the form with changed settings
-if ($data = data_submitted() and confirm_sesskey() and isset($data->action) and $data->action == 'save-settings') {
-    require_capability('moodle/site:config', $context);
-    $count = admin_write_settings($data);
-    if (!empty($adminroot->errors)) {
-        $errormsg = get_string('errorwithsettings', 'admin');
-        $firsterror = reset($adminroot->errors);
-        $focus = $firsterror->id;
-    } else {
-        // No errors. Did we change any setting? If so, then redirect with success.
-        if ($count) {
-            redirect($PAGE->url, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
-        }
-        redirect($PAGE->url);
+$site = get_site();
+
+$searchcriteria = array();
+foreach (array('search', 'blocklist', 'modulelist', 'tagid') as $param) {
+    if (!empty($$param)) {
+        $searchcriteria[$param] = $$param;
     }
 }
+$urlparams = array();
+if ($perpage !== 'all' && !($perpage = (int)$perpage)) {
+    // default number of courses per page
+    $perpage = $CFG->coursesperpage;
+} else {
+    $urlparams['perpage'] = $perpage;
+}
+if (!empty($page)) {
+    $urlparams['page'] = $page;
+}
+$PAGE->set_url('/course/search.php', $searchcriteria + $urlparams);
+$PAGE->set_context(context_system::instance());
+$PAGE->set_pagelayout('standard');
+$courserenderer = $PAGE->get_renderer('core', 'course');
 
-$PAGE->set_primary_active_tab('siteadminnode');
-
-// and finally, if we get here, then there are matching settings and we have to print a form
-// to modify them
-echo $OUTPUT->header($focus);
-
-// Display a warning if site is not registered.
-if (empty($query)) {
-    $adminrenderer = $PAGE->get_renderer('core', 'admin');
-    echo $adminrenderer->warn_if_not_registered();
+if ($CFG->forcelogin) {
+    require_login();
 }
 
-if ($errormsg !== '') {
-    echo $OUTPUT->notification($errormsg);
+$strcourses = new lang_string("courses");
+$strsearch = new lang_string("search");
+$strsearchresults = new lang_string("searchresults");
+$strnovalidcourses = new lang_string('novalidcourses');
 
-} else if ($statusmsg !== '') {
-    echo $OUTPUT->notification($statusmsg, 'notifysuccess');
+$courseurl = core_course_category::user_top() ? new moodle_url('/course/index.php') : null;
+$PAGE->navbar->add($strcourses, $courseurl);
+$PAGE->navbar->add($strsearch, new moodle_url('/course/search.php'));
+if (!empty($search)) {
+    $PAGE->navbar->add(s($search));
 }
 
-$showsettingslinks = true;
-
-if ($query && $hassiteconfig) {
-    echo '<hr>';
-    echo admin_search_settings_html($query);
-    $showsettingslinks = false;
-}
-
-if ($showsettingslinks) {
-    $node = $PAGE->settingsnav->find('root', navigation_node::TYPE_SITE_ADMIN);
-    if ($node) {
-        $secondarynavigation = false;
-        if ($PAGE->has_secondary_navigation()) {
-            $moremenu = new \core\navigation\output\more_menu($PAGE->secondarynav, 'nav-tabs', true, true);
-            $secondarynavigation = $moremenu->export_for_template($OUTPUT);
-        }
-        echo $OUTPUT->render_from_template('core/settings_link_page',
-            ['node' => $node, 'secondarynavigation' => $secondarynavigation]);
+if (empty($searchcriteria)) {
+    // no search criteria specified, print page with just search form
+    $PAGE->set_title($strsearch);
+} else {
+    // this is search results page
+    $PAGE->set_title($strsearchresults);
+    // Link to manage search results should be visible if user have system or category level capability
+    if ((can_edit_in_category() || !empty($usercatlist))) {
+        $aurl = new moodle_url('/course/management.php', $searchcriteria);
+        $searchform = $OUTPUT->single_button($aurl, get_string('managecourses'), 'get');
+        $PAGE->set_button($searchform);
     }
+
+    // Trigger event, courses searched.
+    $eventparams = array('context' => $PAGE->context, 'other' => array('query' => $search));
+    $event = \core\event\courses_searched::create($eventparams);
+    $event->trigger();
 }
 
+$PAGE->set_heading($site->fullname);
+
+echo $OUTPUT->header();
+echo $courserenderer->search_courses($searchcriteria);
 echo $OUTPUT->footer();

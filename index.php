@@ -1,4 +1,5 @@
 <?php
+
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -15,176 +16,66 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * file index.php
- * index page to view blogs. if no blog is specified then site wide entries are shown
- * if a blog id is specified then the latest entries from that blog are shown
+ * Lists the course categories
+ *
+ * @copyright 1999 Martin Dougiamas  http://dougiamas.com
+ * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package course
  */
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->dirroot .'/blog/lib.php');
-require_once($CFG->dirroot .'/blog/locallib.php');
-require_once($CFG->dirroot .'/course/lib.php');
-require_once($CFG->dirroot .'/comment/lib.php');
+require_once("../config.php");
+require_once($CFG->dirroot. '/course/lib.php');
 
-$id       = optional_param('id', null, PARAM_INT);
-$start    = optional_param('formstart', 0, PARAM_INT);
-$tag      = optional_param('tag', '', PARAM_NOTAGS);
-$userid   = optional_param('userid', null, PARAM_INT);
-$tagid    = optional_param('tagid', null, PARAM_INT);
-$modid    = optional_param('modid', null, PARAM_INT);
-$entryid  = optional_param('entryid', null, PARAM_INT);
-$groupid  = optional_param('groupid', null, PARAM_INT);
-$courseid = optional_param('courseid', null, PARAM_INT);
-$search   = optional_param('search', null, PARAM_RAW);
+$categoryid = optional_param('categoryid', 0, PARAM_INT); // Category id
+$site = get_site();
 
-comment::init();
-
-$urlparams = compact('id', 'start', 'tag', 'userid', 'tagid', 'modid', 'entryid', 'groupid', 'courseid', 'search');
-foreach ($urlparams as $var => $val) {
-    if (empty($val)) {
-        unset($urlparams[$var]);
-    }
+if ($CFG->forcelogin) {
+    require_login();
 }
-$PAGE->set_url('/blog/index.php', $urlparams);
 
-// Correct tagid if a text tag is provided as a param.
-if (!empty($tag)) {
-    if ($tagrec = $DB->get_record('tag', array('name' => $tag))) {
-        $tagid = $tagrec->id;
+$heading = $site->fullname;
+if ($categoryid) {
+    $category = core_course_category::get($categoryid); // This will validate access.
+    $PAGE->set_category_by_id($categoryid);
+    $PAGE->set_url(new moodle_url('/course/index.php', array('categoryid' => $categoryid)));
+    $PAGE->set_pagetype('course-index-category');
+    $heading = $category->get_formatted_name();
+} else if ($category = core_course_category::user_top()) {
+    // Check if there is only one top-level category, if so use that.
+    $categoryid = $category->id;
+    $PAGE->set_url('/course/index.php');
+    if ($category->is_uservisible() && $categoryid) {
+        $PAGE->set_category_by_id($categoryid);
+        $PAGE->set_context($category->get_context());
+        if (!core_course_category::is_simple_site()) {
+            $PAGE->set_url(new moodle_url('/course/index.php', array('categoryid' => $categoryid)));
+            $heading = $category->get_formatted_name();
+        }
     } else {
-        unset($tagid);
+        $PAGE->set_context(context_system::instance());
     }
-}
-
-// Set the userid to the entry author if we have the entry ID.
-if ($entryid and !isset($userid)) {
-    $entry = new blog_entry($entryid);
-    $userid = $entry->userid;
-}
-
-if (isset($userid) && empty($courseid) && empty($modid)) {
-    $context = context_user::instance($userid);
-} else if (!empty($courseid) && $courseid != SITEID) {
-    $context = context_course::instance($courseid);
+    $PAGE->set_pagetype('course-index-category');
 } else {
-    $context = context_system::instance();
-}
-$PAGE->set_context($context);
-
-if (isset($userid) && $USER->id == $userid && !$PAGE->has_secondary_navigation()) {
-    $blognode = $PAGE->navigation->find('siteblog', null);
-    if ($blognode) {
-        $blognode->make_inactive();
-    }
+    throw new moodle_exception('cannotviewcategory');
 }
 
-// Check basic permissions.
-if ($CFG->bloglevel == BLOG_GLOBAL_LEVEL) {
-    // Everybody can see anything - no login required unless site is locked down using forcelogin.
-    if ($CFG->forcelogin) {
-        require_login();
-    }
+$PAGE->set_pagelayout('coursecategory');
+$PAGE->set_primary_active_tab('home');
+$PAGE->add_body_class('limitedwidth');
+$courserenderer = $PAGE->get_renderer('core', 'course');
 
-} else if ($CFG->bloglevel == BLOG_SITE_LEVEL) {
-    // Users must log in and can not be guests.
-    require_login();
-    if (isguestuser()) {
-        // They must have entered the url manually.
-        throw new \moodle_exception('noguest');
-    }
+$PAGE->set_heading($heading);
+$content = $courserenderer->course_category($categoryid);
 
-} else if ($CFG->bloglevel == BLOG_USER_LEVEL) {
-    // Users can see own blogs only! with the exception of people with special cap.
-    require_login();
+$PAGE->set_secondary_active_tab('categorymain');
 
-} else {
-    // Weird!
-    throw new \moodle_exception('blogdisable', 'blog');
-}
+echo $OUTPUT->header();
+echo $OUTPUT->skip_link_target();
+echo $content;
 
-if (empty($CFG->enableblogs)) {
-    throw new \moodle_exception('blogdisable', 'blog');
-}
-
-list($courseid, $userid) = blog_validate_access($courseid, $modid, $groupid, $entryid, $userid);
-
-$courseid = (empty($courseid)) ? SITEID : $courseid;
-
-if ($courseid != SITEID) {
-    $course = get_course($courseid);
-    require_login($course);
-}
-
-if (!empty($userid)) {
-    $user = core_user::get_user($userid, '*', MUST_EXIST);
-    $PAGE->navigation->extend_for_user($user);
-}
-
-$blogheaders = blog_get_headers();
-
-$rsscontext = null;
-$filtertype = null;
-$thingid = null;
-$rsstitle = '';
-if ($CFG->enablerssfeeds) {
-    list($thingid, $rsscontext, $filtertype) = blog_rss_get_params($blogheaders['filters']);
-    if (empty($rsscontext)) {
-        $rsscontext = context_system::instance();
-    }
-    $rsstitle = $blogheaders['heading'];
-
-    // Check we haven't started output by outputting an error message.
-    if ($PAGE->state == moodle_page::STATE_BEFORE_HEADER) {
-        blog_rss_add_http_header($rsscontext, $rsstitle, $filtertype, $thingid, $tagid);
-    }
-}
-
-$usernode = $PAGE->navigation->find('user'.$userid, null);
-if ($usernode && $courseid != SITEID) {
-    $courseblogsnode = $PAGE->navigation->find('courseblogs', null);
-    if ($courseblogsnode) {
-        $courseblogsnode->remove();
-    }
-    $blogurl = new moodle_url($PAGE->url);
-    $blognode = $usernode->add(get_string('blogscourse', 'blog'), $blogurl);
-    $blognode->make_active();
-}
-
-if ($courseid != SITEID) {
-    $PAGE->set_heading($course->fullname);
-    echo $OUTPUT->header();
-
-    if (!empty($user)) {
-        $backurl = new moodle_url('/user/view.php', ['id' => $user->id, 'course' => $courseid]);
-        echo $OUTPUT->single_button($backurl, get_string('back'), 'get', ['class' => 'mb-3']);
-
-        $headerinfo = array('heading' => fullname($user), 'user' => $user);
-        echo $OUTPUT->context_header($headerinfo, 2);
-    }
-} else if (isset($userid)) {
-    $PAGE->set_heading(fullname($user));
-    echo $OUTPUT->header();
-} else if ($courseid == SITEID) {
-    echo $OUTPUT->header();
-}
-
-echo $OUTPUT->heading($blogheaders['heading'], 2);
-
-$bloglisting = new blog_listing($blogheaders['filters']);
-$bloglisting->print_entries();
-
-if ($CFG->enablerssfeeds) {
-    blog_rss_print_link($rsscontext, $filtertype, $thingid, $tagid, get_string('rssfeed', 'blog'));
-}
+// Trigger event, course category viewed.
+$eventparams = array('context' => $PAGE->context, 'objectid' => $categoryid);
+$event = \core\event\course_category_viewed::create($eventparams);
+$event->trigger();
 
 echo $OUTPUT->footer();
-$eventparams = array(
-    'other' => array('entryid' => $entryid, 'tagid' => $tagid, 'userid' => $userid, 'modid' => $modid, 'groupid' => $groupid,
-                     'search' => $search, 'fromstart' => $start)
-);
-if (!empty($userid)) {
-    $eventparams['relateduserid'] = $userid;
-}
-$eventparams['other']['courseid'] = ($courseid === SITEID) ? 0 : $courseid;
-$event = \core\event\blog_entries_viewed::create($eventparams);
-$event->trigger();

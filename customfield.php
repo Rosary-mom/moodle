@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -16,10 +15,23 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Listing of the course administration pages for this course.
+ * Manage course custom fields
  *
- * @copyright 2016 Damyon Wiese
+ * @package core_course
+ * @copyright 2018 Toni Barbera (toni@moodle.com)
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @deprecated since 5.0
  */
-require_once("../r.php");
+
+require_once('../config.php');
+require_once($CFG->libdir.'/adminlib.php');
+
+admin_externalpage_setup('course_customfield');
+
+$output = $PAGE->get_renderer('core_customfield');
+$handler = core_course\customfield\course_handler::create();
+$outputpage = new \core_customfield\output\management($handler);
+
+echo $output->header(),
+     $output->heading(new lang_string('course_customfield', 'admin')),
+     $output->render($outputpage),
+     $output->footer();

@@ -16,10 +16,15 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Listing of the course administration pages for this course.
+ * List of all resource type modules in course
  *
- * @copyright 2016 Damyon Wiese
- * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @deprecated since 5.0
+ * @package   moodlecore
+ * @copyright 2009 Petr Skoda (http://skodak.org)
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-require_once("../r.php");
+
+require_once('../config.php');
+
+$courseid = required_param('id', PARAM_INT);
+
+\core_courseformat\activityoverviewbase::redirect_to_overview_page($courseid, 'resource');

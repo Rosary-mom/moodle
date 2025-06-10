@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -16,110 +15,95 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * This file is part of the Calendar section Moodle
- * It is responsible for deleting a calendar entry + optionally its repeats
+ * Admin-only code to delete a course utterly.
  *
- * @copyright 2009 Sam Hemelryk
+ * @package core_course
+ * @copyright 2002 onwards Martin Dougiamas (http://dougiamas.com)
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @package calendar
  */
 
-require_once('../config.php');
-require_once($CFG->dirroot.'/calendar/event_form.php');
-require_once($CFG->dirroot.'/calendar/lib.php');
-require_once($CFG->dirroot.'/course/lib.php');
-require_once($CFG->dirroot.'/calendar/renderer.php');
+define('NO_OUTPUT_BUFFERING', true);
 
-$eventid = required_param('id', PARAM_INT);
-$confirm = optional_param('confirm', false, PARAM_BOOL);
-$repeats = optional_param('repeats', false, PARAM_BOOL);
-$courseid = optional_param('course', 0, PARAM_INT);
+require_once(__DIR__ . '/../config.php');
+require_once($CFG->dirroot . '/course/lib.php');
+require_once($CFG->dirroot . '/backup/util/includes/backup_includes.php');
 
-$PAGE->set_url('/calendar/delete.php', array('id'=>$eventid));
+$id = required_param('id', PARAM_INT); // Course ID.
+$delete = optional_param('delete', '', PARAM_ALPHANUM); // Confirmation hash.
 
-if(!$site = get_site()) {
-    redirect(new moodle_url('/admin/index.php'));
+$course = $DB->get_record('course', array('id' => $id), '*', MUST_EXIST);
+$coursecontext = context_course::instance($course->id);
+
+require_login();
+
+if ($SITE->id == $course->id || !can_delete_course($id)) {
+    // Can not delete frontpage or don't have permission to delete the course.
+    throw new \moodle_exception('cannotdeletecourse');
 }
 
-$event = calendar_event::load($eventid);
+$categorycontext = context_coursecat::instance($course->category);
+$PAGE->set_url('/course/delete.php', array('id' => $id));
+$PAGE->set_context($categorycontext);
+$PAGE->set_pagelayout('admin');
+navigation_node::override_active_url(new moodle_url('/course/management.php', array('categoryid'=>$course->category)));
 
-/**
- * We are going to be picky here, and require that any event types other than
- * group and site be associated with a course. This means any code that is using
- * custom event types (and there are a few) will need to associate thier event with
- * a course
- */
-if ($event->eventtype !== 'user' && $event->eventtype !== 'site') {
-    $courseid = $event->courseid;
-}
-$course = $DB->get_record('course', array('id'=>$courseid));
-require_login($course);
-if (!$course) {
-    $PAGE->set_context(context_system::instance()); //TODO: wrong
-}
-$title = get_string('deleteevent', 'calendar');
-// Check the user has the required capabilities to delete an event
-if (!calendar_delete_event_allowed($event)) {
-    throw new \moodle_exception('nopermissions', 'error', $PAGE->url, $title);
-}
+$courseshortname = format_string($course->shortname, true, array('context' => $coursecontext));
+$coursefullname = format_string($course->fullname, true, array('context' => $coursecontext));
+$categoryurl = new moodle_url('/course/management.php', array('categoryid' => $course->category));
 
-// Count the repeats, do we need to consider the possibility of deleting repeats
-$event->timedurationuntil = $event->timestart + $event->timeduration;
-$event->count_repeats();
+// Check if we've got confirmation.
+if ($delete === md5($course->timemodified)) {
+    // We do - time to delete the course.
+    require_sesskey();
 
-// Is used several times, and sometimes with modification if required
-$viewcalendarurl = new moodle_url(CALENDAR_URL.'view.php', array('view'=>'upcoming'));
-$viewcalendarurl->param('time', $event->timestart, '%Y');
+    $strdeletingcourse = get_string("deletingcourse", "", $courseshortname);
 
-// If confirm is set (PARAM_BOOL) then we have confirmation of initention to delete
-if ($confirm) {
-    // Confirm the session key to stop CSRF
-    if (!confirm_sesskey()) {
-        throw new \moodle_exception('confirmsesskeybad');
-    }
-    // Delete the event and possibly repeats
-    $event->delete($repeats);
-    // If the event has an associated course then we need to include it in the redirect link
-    if (!empty($event->courseid) && $event->courseid > 0) {
-        $viewcalendarurl->param('course', $event->courseid);
-    }
-    // And redirect
-    redirect($viewcalendarurl);
+    $PAGE->navbar->add($strdeletingcourse);
+    $PAGE->set_title($strdeletingcourse);
+    $PAGE->set_heading($SITE->fullname);
+
+    echo $OUTPUT->header();
+    echo $OUTPUT->heading($strdeletingcourse);
+    // This might take a while. Raise the execution time limit.
+    core_php_time_limit::raise();
+
+    // We do this here because it spits out feedback as it goes.
+    echo $OUTPUT->footer();
+    echo $OUTPUT->select_element_for_append();
+
+    // Preemptively reset the navcache before closing, so it remains the same on shutdown.
+    navigation_cache::destroy_volatile_caches();
+    \core\session\manager::write_close();
+
+    delete_course($course);
+    echo $OUTPUT->heading( get_string("deletedcourse", "", $courseshortname) );
+    // Update course count in categories.
+    fix_course_sortorder();
+    echo $OUTPUT->continue_button($categoryurl);
+    exit; // We must exit here!!!
 }
 
-// Prepare the page to show the confirmation form
-$strcalendar = get_string('calendar', 'calendar');
+$strdeletecheck = get_string("deletecheck", "", $courseshortname);
 
-$PAGE->navbar->add($strcalendar, $viewcalendarurl);
-$PAGE->navbar->add($title);
-$PAGE->set_title($strcalendar.': '.$title);
-$PAGE->set_heading($COURSE->fullname);
-if ($course) {
-    $PAGE->set_secondary_navigation(false);
-}
+$PAGE->navbar->add($strdeletecheck);
+$PAGE->set_title($strdeletecheck);
+$PAGE->set_heading($SITE->fullname);
 echo $OUTPUT->header();
-echo $OUTPUT->box_start('eventlist');
 
-// Delete this event button is always shown
-$url = new moodle_url(CALENDAR_URL.'delete.php', array('id'=>$event->id, 'confirm'=>true));
-$buttons = $OUTPUT->single_button($url, get_string('delete'));
+// Only let user delete this course if there is not an async backup in progress.
+if (!async_helper::is_async_pending($id, 'course', 'backup')) {
+    $strdeletecoursecheck = get_string("deletecoursecheck");
+    $message = "{$strdeletecoursecheck}<br /><br />{$coursefullname} ({$courseshortname})";
 
-// And add the cancel button.
-$buttons .= $OUTPUT->single_button($viewcalendarurl, get_string('cancel'));
-
-// And show the buttons and notes.
-echo $OUTPUT->box_start('generalbox', 'notice');
-echo html_writer::tag('p', get_string('confirmeventdelete', 'calendar', format_string($event->name)));
-
-// If there are repeated events then add a Delete Repeated button.
-if (!empty($event->eventrepeats) && $event->eventrepeats > 0) {
-    $url = new moodle_url(CALENDAR_URL.'delete.php', array('id'=>$event->repeatid, 'confirm'=>true, 'repeats'=>true));
-    $buttons .= $OUTPUT->single_button($url, get_string('deleteall'));
-    echo html_writer::tag('p', get_string('youcandeleteallrepeats', 'calendar', $event->eventrepeats));
+    $continueurl = new moodle_url('/course/delete.php', array('id' => $course->id, 'delete' => md5($course->timemodified)));
+    $continuebutton = new single_button($continueurl, get_string('delete'), 'post');
+    echo $OUTPUT->confirm($message, $continuebutton, $categoryurl);
+} else {
+    // Async backup is pending, don't let user delete course.
+    echo $OUTPUT->notification(get_string('pendingasyncerror', 'backup'), 'error');
+    echo $OUTPUT->container(get_string('pendingasyncdeletedetail', 'backup'));
+    echo $OUTPUT->continue_button($categoryurl);
 }
 
-echo $OUTPUT->box($buttons, 'buttons');
-echo $OUTPUT->box_end();
-
-echo $OUTPUT->box_end();
 echo $OUTPUT->footer();
+exit;

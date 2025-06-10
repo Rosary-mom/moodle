@@ -15,72 +15,53 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Badge overview page
+ * Course activities overview page.
  *
- * @package    core
- * @subpackage badges
- * @copyright  2012 onwards Totara Learning Solutions Ltd {@link http://www.totaralms.com/}
+ * @package    core_course
+ * @copyright  2025 Ferran Recio <ferran@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @author     Yuliya Bozhko <yuliya.bozhko@totaralms.com>
  */
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->libdir . '/badgeslib.php');
+require_once('../config.php');
+require_once('lib.php');
+require_once($CFG->libdir . '/completionlib.php');
 
-$badgeid = required_param('id', PARAM_INT);
-$awards = optional_param('awards', '', PARAM_ALPHANUM);
+$courseid = required_param('id', PARAM_INT);
+// The expand param is just a quick way of expanding a specific activity type so it
+// does not require javascript to expand it. It is mostly used to accelerate behats.
+$expand = optional_param_array('expand', [], PARAM_ALPHANUM);
 
-require_login();
+$PAGE->set_url('/course/overview.php', ['id' => $courseid]);
 
-if (empty($CFG->enablebadges)) {
-    throw new \moodle_exception('badgesdisabled', 'badges');
-}
+$course = get_course($courseid);
 
-$badge = new badge($badgeid);
-$context = $badge->get_context();
-$navurl = new moodle_url('/badges/index.php', array('type' => $badge->type));
-$title = [$badge->name];
+$context = context_course::instance($course->id, MUST_EXIST);
 
-if ($badge->type == BADGE_TYPE_COURSE) {
-    if (empty($CFG->badges_allowcoursebadges)) {
-        throw new \moodle_exception('coursebadgesdisabled', 'badges');
-    }
-    require_login($badge->courseid);
-    $course = get_course($badge->courseid);
-    $heading = format_string($course->fullname, true, ['context' => $context]);
-    $title[] = $heading;
+require_login($course);
+require_capability('moodle/course:viewoverview', $context);
 
-    $navurl = new moodle_url('/badges/index.php', array('type' => $badge->type, 'id' => $badge->courseid));
-    $PAGE->set_pagelayout('standard');
-    navigation_node::override_active_url($navurl);
-} else {
-    $PAGE->set_pagelayout('admin');
-    $heading = get_string('administrationsite');
-    navigation_node::override_active_url($navurl, true);
-}
+// Trigger event, course information viewed.
+$event = \core\event\course_overview_viewed::create(['context' => $context]);
+$event->add_record_snapshot('course', $course);
+$event->trigger();
 
-$currenturl = new moodle_url('/badges/overview.php', array('id' => $badge->id));
+$format = course_get_format($course);
+$renderer = $format->get_renderer($PAGE);
+$overviewpageclass = $format->get_output_classname('overview\\overviewpage');
+/** @var core_courseformat\output\local\overview\overviewpage $overview */
+$overview = new $overviewpageclass($course, $expand);
 
-$PAGE->set_context($context);
-$PAGE->set_url($currenturl);
-$PAGE->set_heading($heading);
-$PAGE->set_title(implode(\moodle_page::TITLE_SEPARATOR, $title));
-$PAGE->navbar->add($badge->name);
+$PAGE->set_pagelayout('incourse');
 
-require_capability('moodle/badges:viewbadges', $context);
+$PAGE->set_title(get_string('overview_page_title', 'course', $course->fullname));
+$PAGE->set_heading($course->fullname);
+include_course_ajax($course);
 
-echo $OUTPUT->header();
-$output = $PAGE->get_renderer('core', 'badges');
-$actionbar = new \core_badges\output\manage_badge_action_bar($badge, $PAGE);
-echo $output->render_tertiary_navigation($actionbar);
-echo $OUTPUT->heading(print_badge_image($badge, $context, 'small') . ' ' . $badge->name);
+echo $renderer->header();
 
-if ($awards == 'cron') {
-    echo $OUTPUT->notification(get_string('awardoncron', 'badges', ['badgename' => $badge->name]), 'info');
-} else if ((int)$awards > 0) {
-    echo $OUTPUT->notification(get_string('numawardstat', 'badges', ['badgename' => $badge->name, 'awards' => $awards]), 'info');
-}
-echo $output->print_badge_status_box($badge);
-echo $output->print_badge_overview($badge, $context);
+echo $renderer->heading(get_string('activities'), 2, 'h4');
+echo $renderer->paragraph(get_string('overview_info', 'course'));
 
-echo $OUTPUT->footer();
+echo $renderer->render($overview);
+
+echo $renderer->footer();

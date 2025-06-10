@@ -14,279 +14,233 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-
 /**
- * Blog entry edit page
+ * Edit course settings
  *
- * @package    moodlecore
- * @subpackage blog
- * @copyright  2009 Nicolas Connault
+ * @package    core_course
+ * @copyright  1999 onwards Martin Dougiamas (http://dougiamas.com)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->dirroot . '/blog/lib.php');
-require_once($CFG->dirroot . '/blog/locallib.php');
-require_once($CFG->dirroot . '/comment/lib.php');
-require_once($CFG->dirroot . '/blog/edit_form.php');
 
-$action   = required_param('action', PARAM_ALPHA);
-$id       = optional_param('entryid', 0, PARAM_INT);
-$confirm  = optional_param('confirm', 0, PARAM_BOOL);
-$modid = optional_param('modid', 0, PARAM_INT); // To associate the entry with a module instance.
-$courseid = optional_param('courseid', 0, PARAM_INT); // To associate the entry with a course.
+require_once('../config.php');
+require_once('lib.php');
+require_once('edit_form.php');
 
-if ($action == 'edit') {
-    $id = required_param('entryid', PARAM_INT);
+$id = optional_param('id', 0, PARAM_INT); // Course id.
+$categoryid = optional_param('category', 0, PARAM_INT); // Course category - can be changed in edit form.
+$returnto = optional_param('returnto', 0, PARAM_ALPHANUM); // Generic navigation return page switch.
+$returnurl = optional_param('returnurl', '', PARAM_LOCALURL); // A return URL. returnto must also be set to 'url'.
+
+if ($returnto === 'url' && confirm_sesskey() && $returnurl) {
+    // If returnto is 'url' then $returnurl may be used as the destination to return to after saving or cancelling.
+    // Sesskey must be specified, and would be set by the form anyway.
+    $returnurl = new moodle_url($returnurl);
+} else {
+    if (!empty($id)) {
+        $returnurl = new moodle_url($CFG->wwwroot . '/course/view.php', array('id' => $id));
+    } else {
+        $returnurl = new moodle_url($CFG->wwwroot . '/course/');
+    }
+    if ($returnto !== 0) {
+        switch ($returnto) {
+            case 'category':
+                $returnurl = new moodle_url($CFG->wwwroot . '/course/index.php', array('categoryid' => $categoryid));
+                break;
+            case 'catmanage':
+                $returnurl = new moodle_url($CFG->wwwroot . '/course/management.php', array('categoryid' => $categoryid));
+                break;
+            case 'topcatmanage':
+                $returnurl = new moodle_url($CFG->wwwroot . '/course/management.php');
+                break;
+            case 'topcat':
+                $returnurl = new moodle_url($CFG->wwwroot . '/course/');
+                break;
+            case 'pending':
+                $returnurl = new moodle_url($CFG->wwwroot . '/course/pending.php');
+                break;
+        }
+    }
 }
 
-$PAGE->set_url('/blog/edit.php', array('action' => $action,
-                                       'entryid' => $id,
-                                       'confirm' => $confirm,
-                                       'modid' => $modid,
-                                       'courseid' => $courseid));
-
-// If action is add, we ignore $id to avoid any further problems.
-if (!empty($id) && $action == 'add') {
-    $id = null;
-}
-
-$entry = new stdClass();
-$entry->id = null;
-
+$PAGE->set_pagelayout('admin');
 if ($id) {
-    $entry = new blog_entry($id);   // Will trigger exception if not found.
-    $userid = $entry->userid;
+    $pageparams = array('id' => $id);
 } else {
-    $userid = $USER->id;
+    $pageparams = array('category' => $categoryid);
 }
-
-$sitecontext = context_system::instance();
-$usercontext = context_user::instance($userid);
-
-require_login($courseid);
-
-if (empty($CFG->enableblogs)) {
-    throw new \moodle_exception('blogdisable', 'blog');
+if ($returnto !== 0) {
+    $pageparams['returnto'] = $returnto;
+    if ($returnto === 'url' && $returnurl) {
+        $pageparams['returnurl'] = $returnurl;
+    }
 }
+$PAGE->set_url('/course/edit.php', $pageparams);
 
-if (isguestuser()) {
-    throw new \moodle_exception('noguest');
-}
-
-if ($modid) {
-    $PAGE->set_context($sitecontext);
-} else {
-    $PAGE->set_context($usercontext);
-    $blognode = $PAGE->settingsnav->find('blogadd', null);
-    $blognode->make_active();
-}
-
-$returnurl = new moodle_url('/blog/index.php');
-if (!empty($courseid) && empty($modid)) {
-    $returnurl->param('courseid', $courseid);
-}
-
-// If a modid is given, guess courseid.
-if (!empty($modid)) {
-    $returnurl->param('modid', $modid);
-    $courseid = $DB->get_field('course_modules', 'course', array('id' => $modid));
-    $returnurl->param('courseid', $courseid);
-}
-
-$blogheaders = blog_get_headers();
-
-if (!has_capability('moodle/blog:create', $sitecontext) && !has_capability('moodle/blog:manageentries', $sitecontext)) {
-    throw new \moodle_exception('cannoteditentryorblog', 'blog');
-}
-
-// Make sure that the person trying to edit has access right.
+// Basic access control checks.
 if ($id) {
-    if (!blog_user_can_edit_entry($entry)) {
-        throw new \moodle_exception('notallowedtoedit', 'blog');
+    // Editing course.
+    if ($id == SITEID){
+        // Don't allow editing of  'site course' using this from.
+        throw new \moodle_exception('cannoteditsiteform');
     }
-    $entry->subject      = clean_text($entry->subject);
-    $entry->summary      = clean_text($entry->summary, $entry->format);
+
+    // Login to the course and retrieve also all fields defined by course format.
+    $course = get_course($id);
+    require_login($course);
+    $course = course_get_format($course)->get_course();
+
+    $category = $DB->get_record('course_categories', array('id'=>$course->category), '*', MUST_EXIST);
+    $coursecontext = context_course::instance($course->id);
+    require_capability('moodle/course:update', $coursecontext);
+
+} else if ($categoryid) {
+    // Creating new course in this category.
+    $course = null;
+    require_login();
+    $category = $DB->get_record('course_categories', array('id'=>$categoryid), '*', MUST_EXIST);
+    $catcontext = context_coursecat::instance($category->id);
+    require_capability('moodle/course:create', $catcontext);
+    $PAGE->set_context($catcontext);
+
 } else {
-    if (!has_capability('moodle/blog:create', $sitecontext)) {
-        throw new \moodle_exception('noentry', 'blog'); // The capability "manageentries" is not enough for adding.
+    // Creating new course in default category.
+    $course = null;
+    require_login();
+    $category = core_course_category::get_default();
+    $catcontext = context_coursecat::instance($category->id);
+    require_capability('moodle/course:create', $catcontext);
+    $PAGE->set_context($catcontext);
+}
+
+// We are adding a new course and have a category context.
+if (isset($catcontext)) {
+    $PAGE->set_secondary_active_tab('categorymain');
+}
+
+// Prepare course and the editor.
+$editoroptions = array('maxfiles' => EDITOR_UNLIMITED_FILES, 'maxbytes'=>$CFG->maxbytes, 'trusttext'=>false, 'noclean'=>true);
+$overviewfilesoptions = course_overviewfiles_options($course);
+if (!empty($course)) {
+    // Add context for editor.
+    $editoroptions['context'] = $coursecontext;
+    $editoroptions['subdirs'] = file_area_contains_subdirs($coursecontext, 'course', 'summary', 0);
+    $course = file_prepare_standard_editor($course, 'summary', $editoroptions, $coursecontext, 'course', 'summary', 0);
+    if ($overviewfilesoptions) {
+        file_prepare_standard_filemanager($course, 'overviewfiles', $overviewfilesoptions, $coursecontext, 'course', 'overviewfiles', 0);
+    }
+
+    // Populate course tags.
+    $course->tags = core_tag_tag::get_item_tags_array('core', 'course', $course->id);
+
+} else {
+    // Editor should respect category context if course context is not set.
+    $editoroptions['context'] = $catcontext;
+    $editoroptions['subdirs'] = 0;
+    $course = file_prepare_standard_editor($course, 'summary', $editoroptions, null, 'course', 'summary', null);
+    if ($overviewfilesoptions) {
+        file_prepare_standard_filemanager($course, 'overviewfiles', $overviewfilesoptions, null, 'course', 'overviewfiles', 0);
     }
 }
-$returnurl->param('userid', $userid);
 
-// Blog renderer.
-$output = $PAGE->get_renderer('blog');
+// First create the form.
+$args = array(
+    'course' => $course,
+    'category' => $category,
+    'editoroptions' => $editoroptions,
+    'returnto' => $returnto,
+    'returnurl' => $returnurl
+);
+$editform = new course_edit_form(null, $args);
+if ($editform->is_cancelled()) {
+    // The form has been cancelled, take them back to what ever the return to is.
+    redirect($returnurl);
+} else if ($data = $editform->get_data()) {
+    // Process data if submitted.
+    if (empty($course->id)) {
+        // In creating the course.
+        $course = create_course($data, $editoroptions);
 
-$strblogs = get_string('blogs', 'blog');
+        // Get the context of the newly created course.
+        $context = context_course::instance($course->id, MUST_EXIST);
 
-if ($action === 'delete') {
-    // Init comment JS strings.
-    comment::init();
-
-    if (empty($entry->id)) {
-        throw new \moodle_exception('wrongentryid');
-    }
-    if (data_submitted() && $confirm && confirm_sesskey()) {
-        // Make sure the current user is the author of the blog entry, or has some deleteanyentry capability.
-        if (!blog_user_can_edit_entry($entry)) {
-            throw new \moodle_exception('nopermissionstodeleteentry', 'blog');
+        // Admins have all capabilities, so is_viewing is returning true for admins.
+        // We are checking 'enroladminnewcourse' setting to decide to enrol them or not.
+        if (is_siteadmin($USER->id)) {
+            $enroluser = $CFG->enroladminnewcourse;
         } else {
-            $entry->delete();
-            blog_rss_delete_file($userid);
-            redirect($returnurl);
+            $enroluser = !is_viewing($context, null, 'moodle/role:assign');
         }
-    } else if (blog_user_can_edit_entry($entry)) {
-        $optionsyes = array('entryid' => $id,
-                            'action' => 'delete',
-                            'confirm' => 1,
-                            'sesskey' => sesskey(),
-                            'courseid' => $courseid);
-        $optionsno = array('userid' => $entry->userid, 'courseid' => $courseid);
-        $PAGE->set_title($strblogs);
-        $PAGE->set_heading($SITE->fullname);
-        echo $OUTPUT->header();
 
-        // Output edit mode title.
-        echo $OUTPUT->heading($strblogs . ': ' . get_string('deleteentry', 'blog'), 2);
+        if (!empty($CFG->creatornewroleid) and $enroluser and !is_enrolled($context, null, 'moodle/role:assign')) {
+            // Deal with course creators - enrol them internally with default role.
+            // Note: This does not respect capabilities, the creator will be assigned the default role.
+            // This is an expected behaviour. See MDL-66683 for further details.
+            enrol_try_internal_enrol($course->id, $USER->id, $CFG->creatornewroleid);
+        }
 
-        echo $OUTPUT->confirm(get_string('blogdeleteconfirm', 'blog', format_string($entry->subject)),
-                              new moodle_url('edit.php', $optionsyes),
-                              new moodle_url('index.php', $optionsno));
-
-        echo '<br />';
-        // Output the entry.
-        $entry->prepare_render();
-        echo $output->render($entry);
-
-        echo $OUTPUT->footer();
-        die;
+        // The URL to take them to if they chose save and display.
+        $courseurl = new moodle_url('/course/view.php', array('id' => $course->id));
+    } else {
+        // Save any changes to the files used in the editor.
+        update_course($data, $editoroptions);
+        // Set the URL to take them too if they choose save and display.
+        $courseurl = new moodle_url('/course/view.php', array('id' => $course->id));
     }
-} else if ($action == 'add') {
-    $editmodetitle = $strblogs . ': ' . get_string('addnewentry', 'blog');
-    $PAGE->set_title($editmodetitle);
-    $PAGE->set_heading(fullname($USER));
-} else if ($action == 'edit') {
-    $editmodetitle = $strblogs . ': ' . get_string('editentry', 'blog');
-    $PAGE->set_title($editmodetitle);
-    $PAGE->set_heading(fullname($USER));
-}
 
-if (!empty($entry->id)) {
-    if ($CFG->useblogassociations && ($blogassociations = $DB->get_records('blog_association', array('blogid' => $entry->id)))) {
-
-        foreach ($blogassociations as $assocrec) {
-            $context = context::instance_by_id($assocrec->contextid);
-
-            switch ($context->contextlevel) {
-                case CONTEXT_COURSE:
-                    $entry->courseassoc = $assocrec->contextid;
-                    break;
-                case CONTEXT_MODULE:
-                    $entry->modassoc = $assocrec->contextid;
-                    break;
-            }
-        }
+    if (isset($data->saveanddisplay)) {
+        // Redirect user to newly created/updated course.
+        redirect($courseurl);
+    } else {
+        // Save and return. Take them back to wherever.
+        redirect($returnurl);
     }
 }
 
-[$summaryoptions, $attachmentoptions] = blog_get_editor_options($entry);
+// Print the form.
 
-$blogeditform = new blog_edit_form(null, compact('entry',
-                                                 'summaryoptions',
-                                                 'attachmentoptions',
-                                                 'sitecontext',
-                                                 'courseid',
-                                                 'modid'));
+$site = get_site();
 
-$entry = file_prepare_standard_editor($entry, 'summary', $summaryoptions, $sitecontext, 'blog', 'post', $entry->id);
-$entry = file_prepare_standard_filemanager($entry,
-                                           'attachment',
-                                           $attachmentoptions,
-                                           $sitecontext,
-                                           'blog',
-                                           'attachment',
-                                           $entry->id);
+$streditcoursesettings = get_string("editcoursesettings");
+$straddnewcourse = get_string("addnewcourse");
+$stradministration = get_string("administration");
+$strcategories = get_string("categories");
 
-if (!empty($entry->id)) {
-    $entry->tags = core_tag_tag::get_item_tags_array('core', 'post', $entry->id);
-}
-
-$entry->action = $action;
-// Set defaults.
-$blogeditform->set_data($entry);
-
-if ($blogeditform->is_cancelled()) {
-    redirect($returnurl);
-
-} else if ($data = $blogeditform->get_data()) {
-
-    switch ($action) {
-        case 'add':
-            $blogentry = new blog_entry(null, $data, $blogeditform);
-            $blogentry->add();
-            $blogentry->edit($data, $blogeditform, $summaryoptions, $attachmentoptions);
-        break;
-
-        case 'edit':
-            if (empty($entry->id)) {
-                throw new \moodle_exception('wrongentryid');
-            }
-
-            $entry->edit($data, $blogeditform, $summaryoptions, $attachmentoptions);
-        break;
-
-        default :
-            throw new \moodle_exception('invalidaction');
+if (!empty($course->id)) {
+    // Navigation note: The user is editing a course, the course will exist within the navigation and settings.
+    // The navigation will automatically find the Edit settings page under course navigation.
+    $pagedesc = $streditcoursesettings;
+    $title = $streditcoursesettings;
+    $fullname = $course->fullname;
+} else {
+    // The user is adding a course, this page isn't presented in the site navigation/admin.
+    // Adding a new course is part of course category management territory.
+    // We'd prefer to use the management interface URL without args.
+    $managementurl = new moodle_url('/course/management.php');
+    // These are the caps required in order to see the management interface.
+    $managementcaps = array('moodle/category:manage', 'moodle/course:create');
+    if ($categoryid && !has_any_capability($managementcaps, context_system::instance())) {
+        // If the user doesn't have either manage caps then they can only manage within the given category.
+        $managementurl->param('categoryid', $categoryid);
     }
+    // Because the course category interfaces are buried in the admin tree and that is loaded by ajax
+    // we need to manually tell the navigation we need it loaded. The second arg does this.
+    navigation_node::override_active_url(new moodle_url('/course/index.php', ['categoryid' => $category->id]), true);
+    $PAGE->set_primary_active_tab('home');
+    $PAGE->navbar->add(get_string('coursemgmt', 'admin'), $managementurl);
 
-    redirect($returnurl);
+    $pagedesc = $straddnewcourse;
+    $title = $straddnewcourse;
+    $fullname = format_string($category->name);
+    $PAGE->navbar->add($pagedesc);
 }
 
-
-// GUI setup.
-switch ($action) {
-    case 'add':
-        // Prepare new empty form.
-        $entry->publishstate = 'site';
-        $strformheading = get_string('addnewentry', 'blog');
-        $entry->action       = $action;
-
-        if ($CFG->useblogassociations) {
-
-            // Pre-select the course for associations.
-            if ($courseid) {
-                $context = context_course::instance($courseid);
-                $entry->courseassoc = $context->id;
-            }
-
-            // Pre-select the mod for associations.
-            if ($modid) {
-                $context = context_module::instance($modid);
-                $entry->modassoc = $context->id;
-            }
-        }
-        break;
-
-    case 'edit':
-        if (empty($entry->id)) {
-            throw new \moodle_exception('wrongentryid');
-        }
-        $strformheading = get_string('updateentrywithid', 'blog');
-
-        break;
-
-    default :
-        throw new \moodle_exception('unknowaction');
-}
-
-$entry->modid = $modid;
-$entry->courseid = $courseid;
+$PAGE->set_title($title);
+$PAGE->add_body_class('limitedwidth');
+$PAGE->set_heading($fullname);
 
 echo $OUTPUT->header();
-// Output title for editing mode.
-if (isset($editmodetitle)) {
-    echo $OUTPUT->heading($editmodetitle, 2);
-}
-$blogeditform->display();
-echo $OUTPUT->footer();
+echo $OUTPUT->heading($pagedesc);
 
-die;
+$editform->display();
+
+echo $OUTPUT->footer();

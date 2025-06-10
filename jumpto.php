@@ -16,10 +16,26 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Listing of the course administration pages for this course.
+ * Jumps to a given relative or Moodle absolute URL.
+ * Mostly used for accessibility.
  *
- * @copyright 2016 Damyon Wiese
+ * @copyright 1999 Martin Dougiamas  http://dougiamas.com
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @deprecated since 5.0
+ * @package course
  */
-require_once("../r.php");
+
+require('../config.php');
+
+$jump = required_param('jump', PARAM_RAW);
+
+$PAGE->set_url('/course/jumpto.php');
+
+if (!confirm_sesskey()) {
+    throw new \moodle_exception('confirmsesskeybad');
+}
+
+if (strpos($jump, '/') === 0 || strpos($jump, $CFG->wwwroot) === 0) {
+    redirect(new moodle_url($jump));
+} else {
+    throw new \moodle_exception('error');
+}

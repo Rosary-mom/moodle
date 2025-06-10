@@ -15,120 +15,88 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Configure provider instances.
+ * Configure communication for a given instance.
  *
- * @package    core_ai
- * @copyright  2024 Matt Porritt <matt.porritt@moodle.com>
+ * @package    core_communication
+ * @copyright  2023 David Woloszyn <david.woloszyn@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 require_once('../config.php');
+require_once('lib.php');
 
 require_login();
-$context = context_system::instance();
-require_capability('moodle/site:config', $context);
 
-$id = optional_param('id', 0, PARAM_INT);  // If we have an id we have existing settings.
-$provider = optional_param('aiprovider', null, PARAM_PLUGIN);
-$returnurl = optional_param('returnurl', null, PARAM_LOCALURL);
-$title = get_string('createnewprovider', 'core_ai');
-$data = [];
+$contextid = required_param('contextid', PARAM_INT);
+$instanceid = required_param('instanceid', PARAM_INT);
+$instancetype = required_param('instancetype', PARAM_TEXT);
+$component = required_param('component', PARAM_COMPONENT);
+$selectedcommunication = optional_param('selectedcommunication', null, PARAM_PLUGIN);
 
-// Handle return URL.
-if (empty($returnurl)) {
-    $returnurl = new moodle_url(
-        url: '/admin/settings.php',
-        params: ['section' => 'aiprovider']
-    );
-} else {
-    $returnurl = new moodle_url($returnurl);
-}
-$data['returnurl'] = $returnurl;
+$context = \core\context::instance_by_id($contextid);
+$instanceinfo = [
+    'contextid' => $context->id,
+    'instanceid' => $instanceid,
+    'instancetype' => $instancetype,
+    'component' => $component,
+];
 
-if ($provider) {
-    $configs = ['aiprovider' => $provider];
-    $data['providerconfigs'] = $configs;
+// Requires communication to be enabled.
+if (!core_communication\api::is_available()) {
+    throw new \moodle_exception('communicationdisabled', 'communication');
 }
 
-if ($id !== 0) { // If we have an id we are updating an existing provider instance.
-    $manager = \core\di::get(\core_ai\manager::class);
-    $providerrecord = $manager->get_provider_record(['id' => $id], MUST_EXIST);
-    $plugin = explode('\\', $providerrecord->provider);
-    $plugin = $plugin[0];
+// Attempt to load the communication instance with the provided params.
+$communication = \core_communication\api::load_by_instance(
+    context: $context,
+    component: $component,
+    instancetype: $instancetype,
+    instanceid: $instanceid,
+    provider: $selectedcommunication,
+);
 
-    $configs = json_decode($providerrecord->config, true, 512, JSON_THROW_ON_ERROR);
-    $configs['aiprovider'] = $plugin;
-    $configs['id'] = $providerrecord->id;
-    $configs['name'] = $providerrecord->name;
-
-    $data['providerconfigs'] = $configs;
-    $title = get_string('configureprovider', 'core_ai');
+// No communication, no way this form can be used.
+if (!$communication) {
+    throw new \moodle_exception('nocommunicationinstance', 'communication');
 }
 
-// Initial Page setup.
+// Set variables according to the component callback and use them on the page.
+[$instance, $context, $heading, $returnurl] = component_callback(
+    $component,
+    'get_communication_instance_data',
+    [$instanceid]
+);
+
+// Set up the page.
 $PAGE->set_context($context);
-$PAGE->set_url('/ai/configure.php', ['id' => $id]);
-$PAGE->set_pagelayout('admin');
-$PAGE->set_title($title);
-$PAGE->set_heading($title);
+$PAGE->set_url('/communication/configure.php', $instanceinfo);
+$PAGE->set_title(get_string('communication', 'communication'));
+$PAGE->set_heading($heading);
+$PAGE->add_body_class('limitedwidth');
 
-// Provider instance form processing.
-$mform = new \core_ai\form\ai_provider_form(customdata: $data);
-if ($mform->is_cancelled()) {
-    $data = $mform->get_data();
-    if (isset($data->returnurl)) {
-        redirect($data->returnurl);
-    } else {
-        redirect($returnurl);
-    }
-}
+// Append the instance data before passing to form object.
+$instanceinfo['instancedata'] = $instance;
 
-if ($data = $mform->get_data()) {
-    $data = (array)$data;
-    $manager = \core\di::get(\core_ai\manager::class);
-    $aiprovider = $data['aiprovider'];
-    $providername = $data['name'];
-    unset($data->aiprovider, $data->name, $data->id, $data->returnurl, $data->updateandreturn);
-    if ($id !== 0) {
-        $providerinstance = $manager->get_provider_instances(['id' => $id]);
-        $providerinstance = reset($providerinstance);
-        $providerinstance->name = $providername;
+// Get our form definitions.
+$form = new \core_communication\form\configure_form(
+    context: $context,
+    instanceid: $instanceinfo['instanceid'],
+    instancetype: $instanceinfo['instancetype'],
+    component: $instanceinfo['component'],
+    selectedcommunication: $selectedcommunication,
+    instancedata: $instanceinfo['instancedata'],
+);
 
-        $manager->update_provider_instance(
-            provider:$providerinstance,
-            config: $data
-        );
-        \core\notification::add(
-            get_string('providerinstanceupdated', 'core_ai', $providername),
-            \core\notification::SUCCESS
-        );
-    } else {
-        $classname = $aiprovider . '\\' . 'provider';
-        $manager->create_provider_instance(
-            classname: $classname,
-            name: $providername,
-            config: $data,
-        );
-        \core\notification::add(
-            get_string('providerinstancecreated', 'core_ai', $providername),
-            \core\notification::SUCCESS
-        );
-    }
+
+if ($form->is_cancelled()) {
+    redirect($returnurl);
+} else if ($data = $form->get_data()) {
+    component_callback($component, 'update_communication_instance_data', [$data]);
     redirect($returnurl);
 }
 
-// Page output.
+// Display the page contents.
 echo $OUTPUT->header();
-
-// Add the provider instance form.
-$mform->display();
-
-// Add the per provider action settings only if we have an existing provider.
-if ($id !== 0) {
-    echo $OUTPUT->render_from_template('core_ai/admin_action_settings', []);
-    $provider = $mform->get_customdata()['aiprovider'];
-    $tableid = $provider . '-' . $id; // This is the table id for the action settings table.
-    $actiontable = new \core_ai\table\aiprovider_action_management_table($tableid);
-    $actiontable->out();
-}
+echo $OUTPUT->heading(get_string('communication', 'communication'), 2);
+$form->display();
 echo $OUTPUT->footer();

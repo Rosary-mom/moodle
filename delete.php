@@ -14,96 +14,84 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+
 /**
- * Admin-only code to delete a course utterly.
+ * Delete group
  *
- * @package core_course
- * @copyright 2002 onwards Martin Dougiamas (http://dougiamas.com)
- * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package   core_group
+ * @copyright 2008 The Open University, s.marshall AT open.ac.uk
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define('NO_OUTPUT_BUFFERING', true);
+require_once('../config.php');
+require_once('lib.php');
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->dirroot . '/course/lib.php');
-require_once($CFG->dirroot . '/backup/util/includes/backup_includes.php');
+// Get and check parameters
+$courseid = required_param('courseid', PARAM_INT);
+$groupids = required_param('groups', PARAM_SEQUENCE);
+$confirm = optional_param('confirm', 0, PARAM_BOOL);
 
-$id = required_param('id', PARAM_INT); // Course ID.
-$delete = optional_param('delete', '', PARAM_ALPHANUM); // Confirmation hash.
+$PAGE->set_url('/group/delete.php', array('courseid'=>$courseid,'groups'=>$groupids));
+$PAGE->set_pagelayout('standard');
 
-$course = $DB->get_record('course', array('id' => $id), '*', MUST_EXIST);
-$coursecontext = context_course::instance($course->id);
+// Make sure course is OK and user has access to manage groups
+if (!$course = $DB->get_record('course', array('id' => $courseid))) {
+    throw new \moodle_exception('invalidcourseid');
+}
+require_login($course);
+$context = context_course::instance($course->id);
+require_capability('moodle/course:managegroups', $context);
+$changeidnumber = has_capability('moodle/course:changeidnumber', $context);
 
-require_login();
-
-if ($SITE->id == $course->id || !can_delete_course($id)) {
-    // Can not delete frontpage or don't have permission to delete the course.
-    throw new \moodle_exception('cannotdeletecourse');
+// Make sure all groups are OK and belong to course
+$groupidarray = explode(',',$groupids);
+$groupnames = array();
+foreach($groupidarray as $groupid) {
+    if (!$group = $DB->get_record('groups', array('id' => $groupid))) {
+        throw new \moodle_exception('invalidgroupid');
+    }
+    if (!empty($group->idnumber) && !$changeidnumber) {
+        throw new \moodle_exception('grouphasidnumber', '', '', $group->name);
+    }
+    if ($courseid != $group->courseid) {
+        throw new \moodle_exception('groupunknown', '', '', $group->courseid);
+    }
+    $groupnames[] = format_string($group->name);
 }
 
-$categorycontext = context_coursecat::instance($course->category);
-$PAGE->set_url('/course/delete.php', array('id' => $id));
-$PAGE->set_context($categorycontext);
-$PAGE->set_pagelayout('admin');
-navigation_node::override_active_url(new moodle_url('/course/management.php', array('categoryid'=>$course->category)));
+$returnurl='index.php?id='.$course->id;
 
-$courseshortname = format_string($course->shortname, true, array('context' => $coursecontext));
-$coursefullname = format_string($course->fullname, true, array('context' => $coursecontext));
-$categoryurl = new moodle_url('/course/management.php', array('categoryid' => $course->category));
-
-// Check if we've got confirmation.
-if ($delete === md5($course->timemodified)) {
-    // We do - time to delete the course.
-    require_sesskey();
-
-    $strdeletingcourse = get_string("deletingcourse", "", $courseshortname);
-
-    $PAGE->navbar->add($strdeletingcourse);
-    $PAGE->set_title($strdeletingcourse);
-    $PAGE->set_heading($SITE->fullname);
-
-    echo $OUTPUT->header();
-    echo $OUTPUT->heading($strdeletingcourse);
-    // This might take a while. Raise the execution time limit.
-    core_php_time_limit::raise();
-
-    // We do this here because it spits out feedback as it goes.
-    echo $OUTPUT->footer();
-    echo $OUTPUT->select_element_for_append();
-
-    // Preemptively reset the navcache before closing, so it remains the same on shutdown.
-    navigation_cache::destroy_volatile_caches();
-    \core\session\manager::write_close();
-
-    delete_course($course);
-    echo $OUTPUT->heading( get_string("deletedcourse", "", $courseshortname) );
-    // Update course count in categories.
-    fix_course_sortorder();
-    echo $OUTPUT->continue_button($categoryurl);
-    exit; // We must exit here!!!
+if(count($groupidarray)==0) {
+    throw new \moodle_exception('errorselectsome', 'group', $returnurl);
 }
 
-$strdeletecheck = get_string("deletecheck", "", $courseshortname);
+if ($confirm && data_submitted()) {
+    if (!confirm_sesskey() ) {
+        throw new \moodle_exception('confirmsesskeybad', 'error', $returnurl);
+    }
 
-$PAGE->navbar->add($strdeletecheck);
-$PAGE->set_title($strdeletecheck);
-$PAGE->set_heading($SITE->fullname);
-echo $OUTPUT->header();
+    foreach($groupidarray as $groupid) {
+        groups_delete_group($groupid);
+    }
 
-// Only let user delete this course if there is not an async backup in progress.
-if (!async_helper::is_async_pending($id, 'course', 'backup')) {
-    $strdeletecoursecheck = get_string("deletecoursecheck");
-    $message = "{$strdeletecoursecheck}<br /><br />{$coursefullname} ({$courseshortname})";
-
-    $continueurl = new moodle_url('/course/delete.php', array('id' => $course->id, 'delete' => md5($course->timemodified)));
-    $continuebutton = new single_button($continueurl, get_string('delete'), 'post');
-    echo $OUTPUT->confirm($message, $continuebutton, $categoryurl);
+    redirect($returnurl);
 } else {
-    // Async backup is pending, don't let user delete course.
-    echo $OUTPUT->notification(get_string('pendingasyncerror', 'backup'), 'error');
-    echo $OUTPUT->container(get_string('pendingasyncdeletedetail', 'backup'));
-    echo $OUTPUT->continue_button($categoryurl);
+    $PAGE->set_title(get_string('deleteselectedgroup', 'group'));
+    $PAGE->set_heading($course->fullname . ': '. get_string('deleteselectedgroup', 'group'));
+    echo $OUTPUT->header();
+    $optionsyes = array('courseid'=>$courseid, 'groups'=>$groupids, 'sesskey'=>sesskey(), 'confirm'=>1);
+    $optionsno = array('id'=>$courseid);
+    if(count($groupnames)==1) {
+        $message=get_string('deletegroupconfirm', 'group', $groupnames[0]);
+    } else {
+        $message=get_string('deletegroupsconfirm', 'group').'<ul>';
+        foreach($groupnames as $groupname) {
+            $message.='<li>'.$groupname.'</li>';
+        }
+        $message.='</ul>';
+    }
+    $formcontinue = new single_button(new moodle_url('delete.php', $optionsyes), get_string('yes'), 'post');
+    $formcancel = new single_button(new moodle_url('index.php', $optionsno), get_string('no'), 'get');
+    echo $OUTPUT->confirm($message, $formcontinue, $formcancel);
+    echo $OUTPUT->footer();
 }
-
-echo $OUTPUT->footer();
-exit;

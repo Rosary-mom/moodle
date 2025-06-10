@@ -15,232 +15,101 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Edit course settings
+ * Open the editor to modify an H5P content from a given H5P URL.
  *
- * @package    core_course
- * @copyright  1999 onwards Martin Dougiamas (http://dougiamas.com)
+ * @package    core_h5p
+ * @copyright  2021 Sara Arjona <sara@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once('lib.php');
-require_once('edit_form.php');
+require_once(__DIR__ . '/../config.php');
+require_once("$CFG->libdir/formslib.php");
+require_once("$CFG->libdir/filestorage/file_storage.php");
 
-$id = optional_param('id', 0, PARAM_INT); // Course id.
-$categoryid = optional_param('category', 0, PARAM_INT); // Course category - can be changed in edit form.
-$returnto = optional_param('returnto', 0, PARAM_ALPHANUM); // Generic navigation return page switch.
-$returnurl = optional_param('returnurl', '', PARAM_LOCALURL); // A return URL. returnto must also be set to 'url'.
+require_login(null, false);
 
-if ($returnto === 'url' && confirm_sesskey() && $returnurl) {
-    // If returnto is 'url' then $returnurl may be used as the destination to return to after saving or cancelling.
-    // Sesskey must be specified, and would be set by the form anyway.
-    $returnurl = new moodle_url($returnurl);
-} else {
-    if (!empty($id)) {
-        $returnurl = new moodle_url($CFG->wwwroot . '/course/view.php', array('id' => $id));
-    } else {
-        $returnurl = new moodle_url($CFG->wwwroot . '/course/');
+$contenturl = required_param('url', PARAM_LOCALURL);
+$returnurl = optional_param('returnurl', null, PARAM_LOCALURL);
+
+// If no returnurl is defined, use local_referer.
+if (empty($returnurl)) {
+    $returnurl = get_local_referer(false);
+    if (empty($returnurl)) {
+        // If local referer is empty, returnurl will be set to default site page.
+        $returnurl = new \moodle_url('/');
     }
-    if ($returnto !== 0) {
-        switch ($returnto) {
-            case 'category':
-                $returnurl = new moodle_url($CFG->wwwroot . '/course/index.php', array('categoryid' => $categoryid));
-                break;
-            case 'catmanage':
-                $returnurl = new moodle_url($CFG->wwwroot . '/course/management.php', array('categoryid' => $categoryid));
-                break;
-            case 'topcatmanage':
-                $returnurl = new moodle_url($CFG->wwwroot . '/course/management.php');
-                break;
-            case 'topcat':
-                $returnurl = new moodle_url($CFG->wwwroot . '/course/');
-                break;
-            case 'pending':
-                $returnurl = new moodle_url($CFG->wwwroot . '/course/pending.php');
-                break;
+}
+
+$contentid = null;
+$isreferenced = false;
+$context = \context_system::instance();
+if (!empty($contenturl)) {
+    list($originalfile, $h5p, $file) = \core_h5p\api::get_original_content_from_pluginfile_url($contenturl);
+    $isreferenced = ($file !== false);
+    if ($originalfile) {
+        // Check if the user can edit the content behind the given URL.
+        if (\core_h5p\api::can_edit_content($originalfile)) {
+            if (!$h5p) {
+                // This H5P file hasn't been deployed yet, so it should be saved to create the entry into the H5P DB.
+                \core_h5p\local\library\autoloader::register();
+                $factory = new \core_h5p\factory();
+                $config = new \stdClass();
+                $onlyupdatelibs = !\core_h5p\helper::can_update_library($originalfile);
+                $contentid = \core_h5p\helper::save_h5p($factory, $originalfile, $config, $onlyupdatelibs, false);
+            } else {
+                // The H5P content exists. Update the contentid value.
+                $contentid = $h5p->id;
+            }
         }
-    }
-}
-
-$PAGE->set_pagelayout('admin');
-if ($id) {
-    $pageparams = array('id' => $id);
-} else {
-    $pageparams = array('category' => $categoryid);
-}
-if ($returnto !== 0) {
-    $pageparams['returnto'] = $returnto;
-    if ($returnto === 'url' && $returnurl) {
-        $pageparams['returnurl'] = $returnurl;
-    }
-}
-$PAGE->set_url('/course/edit.php', $pageparams);
-
-// Basic access control checks.
-if ($id) {
-    // Editing course.
-    if ($id == SITEID){
-        // Don't allow editing of  'site course' using this from.
-        throw new \moodle_exception('cannoteditsiteform');
-    }
-
-    // Login to the course and retrieve also all fields defined by course format.
-    $course = get_course($id);
-    require_login($course);
-    $course = course_get_format($course)->get_course();
-
-    $category = $DB->get_record('course_categories', array('id'=>$course->category), '*', MUST_EXIST);
-    $coursecontext = context_course::instance($course->id);
-    require_capability('moodle/course:update', $coursecontext);
-
-} else if ($categoryid) {
-    // Creating new course in this category.
-    $course = null;
-    require_login();
-    $category = $DB->get_record('course_categories', array('id'=>$categoryid), '*', MUST_EXIST);
-    $catcontext = context_coursecat::instance($category->id);
-    require_capability('moodle/course:create', $catcontext);
-    $PAGE->set_context($catcontext);
-
-} else {
-    // Creating new course in default category.
-    $course = null;
-    require_login();
-    $category = core_course_category::get_default();
-    $catcontext = context_coursecat::instance($category->id);
-    require_capability('moodle/course:create', $catcontext);
-    $PAGE->set_context($catcontext);
-}
-
-// We are adding a new course and have a category context.
-if (isset($catcontext)) {
-    $PAGE->set_secondary_active_tab('categorymain');
-}
-
-// Prepare course and the editor.
-$editoroptions = array('maxfiles' => EDITOR_UNLIMITED_FILES, 'maxbytes'=>$CFG->maxbytes, 'trusttext'=>false, 'noclean'=>true);
-$overviewfilesoptions = course_overviewfiles_options($course);
-if (!empty($course)) {
-    // Add context for editor.
-    $editoroptions['context'] = $coursecontext;
-    $editoroptions['subdirs'] = file_area_contains_subdirs($coursecontext, 'course', 'summary', 0);
-    $course = file_prepare_standard_editor($course, 'summary', $editoroptions, $coursecontext, 'course', 'summary', 0);
-    if ($overviewfilesoptions) {
-        file_prepare_standard_filemanager($course, 'overviewfiles', $overviewfilesoptions, $coursecontext, 'course', 'overviewfiles', 0);
-    }
-
-    // Populate course tags.
-    $course->tags = core_tag_tag::get_item_tags_array('core', 'course', $course->id);
-
-} else {
-    // Editor should respect category context if course context is not set.
-    $editoroptions['context'] = $catcontext;
-    $editoroptions['subdirs'] = 0;
-    $course = file_prepare_standard_editor($course, 'summary', $editoroptions, null, 'course', 'summary', null);
-    if ($overviewfilesoptions) {
-        file_prepare_standard_filemanager($course, 'overviewfiles', $overviewfilesoptions, null, 'course', 'overviewfiles', 0);
-    }
-}
-
-// First create the form.
-$args = array(
-    'course' => $course,
-    'category' => $category,
-    'editoroptions' => $editoroptions,
-    'returnto' => $returnto,
-    'returnurl' => $returnurl
-);
-$editform = new course_edit_form(null, $args);
-if ($editform->is_cancelled()) {
-    // The form has been cancelled, take them back to what ever the return to is.
-    redirect($returnurl);
-} else if ($data = $editform->get_data()) {
-    // Process data if submitted.
-    if (empty($course->id)) {
-        // In creating the course.
-        $course = create_course($data, $editoroptions);
-
-        // Get the context of the newly created course.
-        $context = context_course::instance($course->id, MUST_EXIST);
-
-        // Admins have all capabilities, so is_viewing is returning true for admins.
-        // We are checking 'enroladminnewcourse' setting to decide to enrol them or not.
-        if (is_siteadmin($USER->id)) {
-            $enroluser = $CFG->enroladminnewcourse;
+        if ($file) {
+            list($context, $course, $cm) = get_context_info_array($file->get_contextid());
+            if ($course) {
+                $context = \context_course::instance($course->id);
+            }
         } else {
-            $enroluser = !is_viewing($context, null, 'moodle/role:assign');
+            list($context, $course, $cm) = get_context_info_array($originalfile->get_contextid());
+            if ($course) {
+                $context = \context_course::instance($course->id);
+            }
         }
-
-        if (!empty($CFG->creatornewroleid) and $enroluser and !is_enrolled($context, null, 'moodle/role:assign')) {
-            // Deal with course creators - enrol them internally with default role.
-            // Note: This does not respect capabilities, the creator will be assigned the default role.
-            // This is an expected behaviour. See MDL-66683 for further details.
-            enrol_try_internal_enrol($course->id, $USER->id, $CFG->creatornewroleid);
-        }
-
-        // The URL to take them to if they chose save and display.
-        $courseurl = new moodle_url('/course/view.php', array('id' => $course->id));
-    } else {
-        // Save any changes to the files used in the editor.
-        update_course($data, $editoroptions);
-        // Set the URL to take them too if they choose save and display.
-        $courseurl = new moodle_url('/course/view.php', array('id' => $course->id));
     }
+}
 
-    if (isset($data->saveanddisplay)) {
-        // Redirect user to newly created/updated course.
-        redirect($courseurl);
-    } else {
-        // Save and return. Take them back to wherever.
+if (empty($contentid)) {
+    throw new \moodle_exception('error:emptycontentid', 'core_h5p', $returnurl);
+}
+
+$pagetitle = get_string('h5peditor', 'core_h5p');
+$url = new \moodle_url("/h5p/edit.php");
+
+$PAGE->set_context($context);
+$PAGE->set_url($url);
+$PAGE->set_title($pagetitle);
+$PAGE->set_heading($pagetitle);
+$PAGE->set_pagelayout('course');
+
+$values = [
+    'id' => $contentid,
+    'contenturl' => $contenturl,
+    'returnurl' => $returnurl,
+];
+
+$form = new \core_h5p\form\editcontent_form(null, $values);
+if ($form->is_cancelled()) {
+    redirect($returnurl);
+} else if ($data = $form->get_data()) {
+    $form->save_h5p($data);
+    if (!empty($returnurl)) {
         redirect($returnurl);
     }
 }
 
-// Print the form.
+echo $OUTPUT->header();
 
-$site = get_site();
-
-$streditcoursesettings = get_string("editcoursesettings");
-$straddnewcourse = get_string("addnewcourse");
-$stradministration = get_string("administration");
-$strcategories = get_string("categories");
-
-if (!empty($course->id)) {
-    // Navigation note: The user is editing a course, the course will exist within the navigation and settings.
-    // The navigation will automatically find the Edit settings page under course navigation.
-    $pagedesc = $streditcoursesettings;
-    $title = $streditcoursesettings;
-    $fullname = $course->fullname;
-} else {
-    // The user is adding a course, this page isn't presented in the site navigation/admin.
-    // Adding a new course is part of course category management territory.
-    // We'd prefer to use the management interface URL without args.
-    $managementurl = new moodle_url('/course/management.php');
-    // These are the caps required in order to see the management interface.
-    $managementcaps = array('moodle/category:manage', 'moodle/course:create');
-    if ($categoryid && !has_any_capability($managementcaps, context_system::instance())) {
-        // If the user doesn't have either manage caps then they can only manage within the given category.
-        $managementurl->param('categoryid', $categoryid);
-    }
-    // Because the course category interfaces are buried in the admin tree and that is loaded by ajax
-    // we need to manually tell the navigation we need it loaded. The second arg does this.
-    navigation_node::override_active_url(new moodle_url('/course/index.php', ['categoryid' => $category->id]), true);
-    $PAGE->set_primary_active_tab('home');
-    $PAGE->navbar->add(get_string('coursemgmt', 'admin'), $managementurl);
-
-    $pagedesc = $straddnewcourse;
-    $title = $straddnewcourse;
-    $fullname = format_string($category->name);
-    $PAGE->navbar->add($pagedesc);
+if ($isreferenced) {
+    echo $OUTPUT->notification(get_string('contentinuse', 'core_h5p'), 'info');
 }
 
-$PAGE->set_title($title);
-$PAGE->add_body_class('limitedwidth');
-$PAGE->set_heading($fullname);
-
-echo $OUTPUT->header();
-echo $OUTPUT->heading($pagedesc);
-
-$editform->display();
+$form->display();
 
 echo $OUTPUT->footer();

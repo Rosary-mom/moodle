@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Manage group custom fields
+ * Manage grouping custom fields
  *
  * @package   core_group
  * @author    Tomo Tsuyuki <tomotsuyuki@catalyst-au.net>
@@ -23,19 +23,19 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-use core_group\customfield\group_handler;
+use core_group\customfield\grouping_handler;
 use core_customfield\output\management;
 
 require_once('../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 
-admin_externalpage_setup('group_customfield');
+admin_externalpage_setup('grouping_customfield');
 
 $output = $PAGE->get_renderer('core_customfield');
-$handler = group_handler::create();
+$handler = grouping_handler::create();
 $outputpage = new management($handler);
 
 echo $output->header(),
-     $output->heading(new lang_string('group_customfield', 'admin')),
+     $output->heading(new lang_string('grouping_customfield', 'admin')),
      $output->render($outputpage),
      $output->footer();

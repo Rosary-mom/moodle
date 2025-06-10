@@ -15,207 +15,216 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Lets users configure which filters are active in a sub-context.
+ * Managing tags, tag areas and tags collections
  *
- * @license    http://www.gnu.org/copyleft/gpl.html GNU Public License
- * @package    core
- * @subpackage filter
+ * @package    core_tag
+ * @copyright  2007 Luiz Cruz <luiz.laydner@gmail.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->libdir . '/adminlib.php');
+require_once('../config.php');
+require_once('lib.php');
+require_once($CFG->libdir.'/adminlib.php');
 
-$contextid = required_param('contextid', PARAM_INT);
-$forfilter = optional_param('filter', '', PARAM_SAFEDIR);
-$returnto  = optional_param('return', null, PARAM_ALPHANUMEXT);
+use core\context\system;
+use core_reportbuilder\system_report_factory;
+use core_tag\reportbuilder\local\systemreports\tags;
 
-list($context, $course, $cm) = get_context_info_array($contextid);
+$tagid       = optional_param('tagid', null, PARAM_INT);
+$isstandard  = optional_param('isstandard', null, PARAM_INT);
+$action      = optional_param('action', '', PARAM_ALPHA);
+$tagcollid   = optional_param('tc', 0, PARAM_INT);
 
-// Check login and permissions.
-require_login($course, false, $cm);
-require_capability('moodle/filter:manage', $context);
-$PAGE->set_context($context);
-
-$args = ['contextid' => $contextid];
-$baseurl = new moodle_url('/filter/manage.php', $args);
-if (!empty($forfilter)) {
-    $args['filter'] = $forfilter;
-}
-$PAGE->set_url($baseurl, $args);
-if ($returnto !== null) {
-    $baseurl->param('return', $returnto);
+$params = array();
+if ($tagcollid) {
+    $params['tc'] = $tagcollid;
 }
 
-// This is a policy decision, rather than something that would be impossible to implement.
-if (!in_array($context->contextlevel, [CONTEXT_COURSECAT, CONTEXT_COURSE, CONTEXT_MODULE])) {
-    throw new \moodle_exception('cannotcustomisefiltersblockuser', 'error');
+admin_externalpage_setup('managetags', '', $params, '', array('pagelayout' => 'report'));
+
+if (empty($CFG->usetags)) {
+    throw new \moodle_exception('tagsaredisabled', 'tag');
 }
 
-$isfrontpage = ($context->contextlevel == CONTEXT_COURSE && $context->instanceid == SITEID);
-
-$contextname = $context->get_context_name();
-
-if ($context->contextlevel == CONTEXT_COURSECAT) {
-    core_course_category::page_setup();
-} else if ($context->contextlevel == CONTEXT_COURSE) {
-    $PAGE->set_heading($course->fullname);
-} else if ($context->contextlevel == CONTEXT_MODULE) {
-    // Must be module context.
-    $PAGE->set_heading($PAGE->activityrecord->name);
+$tagobject = null;
+if ($tagid) {
+    $tagobject = core_tag_tag::get($tagid, '*', MUST_EXIST);
+    $tagcollid = $tagobject->tagcollid;
+}
+$tagcoll = core_tag_collection::get_by_id($tagcollid);
+$manageurl = new moodle_url('/tag/manage.php');
+if ($tagcoll) {
+    // We are inside a tag collection - add it to the breadcrumb.
+    $PAGE->navbar->add(core_tag_collection::display_name($tagcoll),
+            new moodle_url($manageurl, array('tc' => $tagcoll->id)));
 }
 
-// Check login and permissions.
-require_login($course, false, $cm);
-require_capability('moodle/filter:manage', $context);
+$PAGE->set_blocks_editing_capability('moodle/tag:editblocks');
 
-$PAGE->set_context($context);
+$PAGE->set_primary_active_tab('siteadminnode');
 
-// Get the list of available filters.
-$availablefilters = filter_get_available_in_context($context);
-if (!$isfrontpage && empty($availablefilters)) {
-    throw new \moodle_exception('nofiltersenabled', 'error');
-}
+switch($action) {
 
-// If we are handling local settings for a particular filter, start processing.
-if ($forfilter) {
-    if (!filter_has_local_settings($forfilter)) {
-        throw new \moodle_exception('filterdoesnothavelocalconfig', 'error', $forfilter);
-    }
-    require_once($CFG->dirroot . '/filter/' . $forfilter . '/filterlocalsettings.php');
-    $formname = $forfilter . '_filter_local_settings_form';
-    $settingsform = new $formname($CFG->wwwroot . '/filter/manage.php', $forfilter, $context);
-    if ($settingsform->is_cancelled()) {
-        redirect($baseurl);
-    } else if ($data = $settingsform->get_data()) {
-        $settingsform->save_changes($data);
-        redirect($baseurl);
-    }
-}
+    case 'colladd':
+        require_sesskey();
+        $name = required_param('name', PARAM_NOTAGS);
+        $searchable = optional_param('searchable', false, PARAM_BOOL);
+        core_tag_collection::create(array('name' => $name, 'searchable' => $searchable));
+        redirect($manageurl);
+        break;
 
-// Process any form submission.
-if ($forfilter == '' && optional_param('savechanges', false, PARAM_BOOL) && confirm_sesskey()) {
-    foreach ($availablefilters as $filter => $filterinfo) {
-        $newstate = optional_param($filter, false, PARAM_INT);
-        if ($newstate !== false && $newstate != $filterinfo->localstate) {
-            filter_set_local_state($filter, $context->id, $newstate);
+    case 'colldelete':
+        if ($tagcoll && !$tagcoll->component) {
+            require_sesskey();
+            core_tag_collection::delete($tagcoll);
+            \core\notification::success(get_string('changessaved', 'core_tag'));
         }
-    }
-    redirect($baseurl, get_string('changessaved'), 1);
+        redirect($manageurl);
+        break;
+
+    case 'collmoveup':
+        if ($tagcoll) {
+            require_sesskey();
+            core_tag_collection::change_sortorder($tagcoll, -1);
+            redirect($manageurl, get_string('changessaved', 'core_tag'), null, \core\output\notification::NOTIFY_SUCCESS);
+        }
+        redirect($manageurl);
+        break;
+
+    case 'collmovedown':
+        if ($tagcoll) {
+            require_sesskey();
+            core_tag_collection::change_sortorder($tagcoll, 1);
+            redirect($manageurl, get_string('changessaved', 'core_tag'), null, \core\output\notification::NOTIFY_SUCCESS);
+        }
+        redirect($manageurl);
+        break;
+
+    case 'delete':
+        if ($tagid) {
+            require_sesskey();
+            core_tag_tag::delete_tags(array($tagid));
+            \core\notification::success(get_string('deleted', 'core_tag'));
+        }
+        redirect($PAGE->url);
+        break;
+
+    case 'bulk':
+        $tagschecked = explode(',', optional_param('tagschecked', '', PARAM_SEQUENCE));
+        if (optional_param('bulkdelete', null, PARAM_RAW) !== null) {
+            if ($tagschecked) {
+                require_sesskey();
+                core_tag_tag::delete_tags($tagschecked);
+                \core\notification::success(get_string('deleted', 'core_tag'));
+            }
+            redirect($PAGE->url);
+        } else if (optional_param('bulkcombine', null, PARAM_RAW) !== null) {
+            $tags = core_tag_tag::get_bulk($tagschecked, '*');
+            if (count($tags) > 1) {
+                require_sesskey();
+                if (($maintag = optional_param('maintag', 0, PARAM_INT)) && array_key_exists($maintag, $tags)) {
+                    $tag = $tags[$maintag];
+                } else {
+                    $tag = array_shift($tags);
+                }
+                $tag->combine_tags($tags);
+                \core\notification::success(get_string('combined', 'core_tag'));
+            }
+            redirect($PAGE->url);
+        }
+        break;
+
+    case 'renamecombine':
+        // Allows to rename the tag and if the tag with the new name already exists these tags will be combined.
+        if ($tagid && ($newname = required_param('newname', PARAM_TAG))) {
+            require_sesskey();
+            $tag = core_tag_tag::get($tagid, '*', MUST_EXIST);
+            $targettag = core_tag_tag::get_by_name($tag->tagcollid, $newname, '*');
+            if ($targettag) {
+                $targettag->combine_tags(array($tag));
+                \core\notification::success(get_string('combined', 'core_tag'));
+            } else {
+                $tag->update(array('rawname' => $newname));
+                \core\notification::success(get_string('changessaved', 'core_tag'));
+            }
+        }
+        redirect($PAGE->url);
+        break;
+
+    case 'addstandardtag':
+        require_sesskey();
+        $tagobjects = array();
+        if ($tagcoll) {
+            $tagslist = optional_param('tagslist', '', PARAM_RAW);
+            $newtags = preg_split('/\s*,\s*/', trim($tagslist), -1, PREG_SPLIT_NO_EMPTY);
+            $tagobjects = core_tag_tag::create_if_missing($tagcoll->id, $newtags, true);
+        }
+        foreach ($tagobjects as $tagobject) {
+            if (!$tagobject->isstandard) {
+                $tagobject->update(array('isstandard' => 1));
+            }
+        }
+        redirect($PAGE->url, $tagobjects ? get_string('added', 'core_tag') : null,
+                null, \core\output\notification::NOTIFY_SUCCESS);
+        break;
 }
 
-// Work out an appropriate page title.
-if ($forfilter) {
-    $a = new stdClass;
-    $a->filter = filter_get_name($forfilter);
-    $a->context = $contextname;
-    $title = get_string('filtersettingsforin', 'filters', $a);
-} else {
-    $title = get_string('filtersettingsin', 'filters', $contextname);
-}
-
-// Print the header and tabs.
-$PAGE->set_cacheable(false);
-$PAGE->set_title($title);
-$PAGE->set_pagelayout('admin');
-$PAGE->activityheader->disable();
 echo $OUTPUT->header();
 
-// Print heading.
-echo $OUTPUT->heading_with_help($title, 'filtersettings', 'filters');
+if (!$tagcoll) {
+    // Tag collection is not specified. Display the overview of tag collections and tag areas.
+    $tagareastable = new core_tag_areas_table($manageurl);
+    $colltable = new core_tag_collections_table($manageurl);
 
-if (empty($availablefilters)) {
-    echo '<p class="centerpara">' . get_string('nofiltersenabled', 'filters') . "</p>\n";
-} else if ($forfilter) {
-    $current = filter_get_local_config($forfilter, $contextid);
-    $settingsform->set_data((object) $current);
-    $settingsform->display();
-} else {
-    $settingscol = false;
-    foreach ($availablefilters as $filter => $notused) {
-        $hassettings = filter_has_local_settings($filter);
-        $availablefilters[$filter]->hassettings = $hassettings;
-        $settingscol = $settingscol || $hassettings;
-    }
+    echo $OUTPUT->heading(get_string('tagcollections', 'core_tag') . $OUTPUT->help_icon('tagcollection', 'tag'), 3);
+    echo html_writer::table($colltable);
+    $url = new moodle_url($manageurl, array('action' => 'colladd'));
+    echo html_writer::div(html_writer::link('#', get_string('addtagcoll', 'tag'), array('data-url' => $url)),
+            'mdl-right addtagcoll');
 
-    $strsettings = get_string('settings');
-    $stroff = get_string('off', 'filters');
-    $stron = get_string('on', 'filters');
-    $strdefaultoff = get_string('defaultx', 'filters', $stroff);
-    $strdefaulton = get_string('defaultx', 'filters', $stron);
-    $activechoices = [
-        TEXTFILTER_INHERIT => '',
-        TEXTFILTER_OFF => $stroff,
-        TEXTFILTER_ON => $stron,
-    ];
+    echo $OUTPUT->heading(get_string('tagareas', 'core_tag'), 3);
+    echo html_writer::table($tagareastable);
 
-    echo html_writer::start_tag('form', ['action' => $baseurl->out_omit_querystring(), 'method' => 'post']);
-    echo html_writer::start_tag('div');
+    $PAGE->requires->js_call_amd('core/tag', 'initManageCollectionsPage', array());
+
+    echo $OUTPUT->footer();
+    exit;
+}
+
+// Tag collection is specified. Manage tags in this collection.
+echo html_writer::div(
+    $OUTPUT->heading(core_tag_collection::display_name($tagcoll)) .
+    html_writer::tag(
+        'button',
+        $OUTPUT->pix_icon('t/add', '') . get_string('addotags', 'core_tag'),
+        [
+            'type' => 'button',
+            'class' => 'btn btn-primary my-auto',
+            'data-action' => 'addstandardtag',
+        ],
+    ),
+    'd-flex justify-content-between mb-2',
+);
+
+// Render the report.
+$report = system_report_factory::create(tags::class, system::instance(), '', '', 0, ['collection' => $tagcoll->id]);
+echo $report->output();
+
+// Render bulk actions.
+if ($DB->record_exists('tag', [])) {
+    echo '<form class="tag-management-form" method="post" action="' . $PAGE->url->out_omit_querystring() . '">';
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'tc', 'value' => $tagcoll->id]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()]);
-    foreach ($baseurl->params() as $key => $value) {
-        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => $key, 'value' => $value]);
-    }
-
-    $table = new html_table();
-    $table->head  = [get_string('filter'), get_string('isactive', 'filters')];
-    $table->colclasses = ['leftalign', 'leftalign'];
-    if ($settingscol) {
-        $table->head[] = $strsettings;
-        $table->colclasses[] = 'leftalign';
-    }
-    $table->id = 'frontpagefiltersettings';
-    $table->attributes['class'] = 'admintable generaltable';
-    $table->data = [];
-
-    // Iterate through filters adding to display table.
-    foreach ($availablefilters as $filter => $filterinfo) {
-        $row = [];
-
-        // Filter name.
-        $row[] = filter_get_name($filter);
-
-        // Default/on/off choice.
-        if ($filterinfo->inheritedstate == TEXTFILTER_ON) {
-            $activechoices[TEXTFILTER_INHERIT] = $strdefaulton;
-        } else {
-            $activechoices[TEXTFILTER_INHERIT] = $strdefaultoff;
-        }
-        $select = html_writer::label($filterinfo->localstate, 'menu'. $filter, false, ['class' => 'accesshide']);
-        $select .= html_writer::select($activechoices, $filter, $filterinfo->localstate, false);
-        $row[] = $select;
-
-        // Settings link, if required.
-        if ($settingscol) {
-            $settings = '';
-            if ($filterinfo->hassettings) {
-                $settings = '<a href="' . $baseurl->out(true, ['filter' => $filter]). '">' . $strsettings . '</a>';
-            }
-            $row[] = $settings;
-        }
-
-        $table->data[] = $row;
-    }
-
-    echo html_writer::table($table);
-    echo html_writer::start_tag('div', ['class' => 'buttons']);
-    $submitattr = ['type' => 'submit', 'name' => 'savechanges', 'value' => get_string('savechanges'), 'class' => 'btn btn-primary'];
-    echo html_writer::empty_tag('input', $submitattr);
-    echo html_writer::end_tag('div');
-    echo html_writer::end_tag('div');
-    echo html_writer::end_tag('form');
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'action', 'value' => 'bulk']);
+    echo html_writer::tag('button', get_string('deleteselected', 'tag'),
+            array('id' => 'tag-management-delete', 'type' => 'submit',
+                  'class' => 'tagdeleteselected btn btn-secondary', 'name' => 'bulkdelete'));
+    echo html_writer::tag('button', get_string('combineselected', 'tag'),
+        array('id' => 'tag-management-combine', 'type' => 'submit',
+              'class' => 'tagcombineselected btn btn-secondary', 'name' => 'bulkcombine'));
+    echo '</form>';
 }
 
-// Appropriate back link.
-if (!$isfrontpage) {
-
-    if ($context->contextlevel === CONTEXT_COURSECAT && $returnto === 'management') {
-        $url = new moodle_url('/course/management.php', ['categoryid' => $context->instanceid]);
-    } else {
-        $url = $context->get_url();
-    }
-
-    echo html_writer::start_tag('div', ['class' => 'backlink']);
-    echo html_writer::tag('a', get_string('backto', '', $contextname), ['href' => $url]);
-    echo html_writer::end_tag('div');
-}
+$PAGE->requires->js_call_amd('core/tag', 'initManagePage');
 
 echo $OUTPUT->footer();

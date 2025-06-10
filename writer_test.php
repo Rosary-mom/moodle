@@ -15,60 +15,85 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Tests for the dataformat_pdf writer
+ * Unit Tests for the Moodle Content Writer.
  *
- * @package    dataformat_pdf
- * @copyright  2020 Paul Holden <paulh@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package     core_privacy
+ * @category    test
+ * @copyright   2018 Andrew Nicols <andrew@nicols.co.uk>
+ * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-namespace dataformat_pdf;
+defined('MOODLE_INTERNAL') || die();
 
-use core\dataformat;
-use context_system;
-use html_writer;
-use moodle_url;
+global $CFG;
+
+use \core_privacy\local\request\writer;
 
 /**
- * Writer tests
+ * Tests for the \core_privacy API's moodle_content_writer functionality.
  *
- * @package    dataformat_pdf
- * @copyright  2020 Paul Holden <paulh@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * Note: The \core_privacy\tests\request\content_writer will be used for these tests.
+ * This content writer has additional sugar methods for fetching infromation which are not part of the standard
+ * content_writer interface.
+ *
+ * @copyright   2018 Andrew Nicols <andrew@nicols.co.uk>
+ * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @coversDefaultClass \core_privacy\local\request\writer
  */
-final class writer_test extends \advanced_testcase {
+final class writer_test extends advanced_testcase {
+    /**
+     * Ensure that the writer is cleared away as appropriate after each
+     * test.
+     */
+    public function tearDown(): void {
+        writer::reset();
+        parent::tearDown();
+    }
 
     /**
-     * Test writing data whose content contains an image with pluginfile.php source
+     * Test that calling with_context multiple times will return the same write instance.
+     *
+     * @covers ::with_context
      */
-    public function test_write_data_with_pluginfile_image(): void {
-        global $CFG;
+    public function test_with_context(): void {
+        $writer = writer::with_context(\context_system::instance());
 
-        $this->resetAfterTest(true);
+        $this->assertSame($writer, writer::with_context(\context_system::instance()));
+    }
 
-        $imagefixture = "{$CFG->dirroot}/lib/filestorage/tests/fixtures/testimage.jpg";
-        $image = get_file_storage()->create_file_from_pathname([
-            'contextid' => context_system::instance()->id,
-            'component' => 'dataformat_pdf',
-            'filearea'  => 'test',
-            'itemid'    => 0,
-            'filepath'  => '/',
-            'filename'  => basename($imagefixture),
+    /**
+     * Test that calling with_context multiple times will return the same write instance.
+     *
+     * @covers ::with_context
+     */
+    public function test_with_context_different_context_same_instance(): void {
+        $writer = writer::with_context(\context_system::instance());
 
-        ], $imagefixture);
+        $this->assertSame($writer, writer::with_context(\context_user::instance(\core_user::get_user_by_username('admin')->id)));
+    }
 
-        $imageurl = moodle_url::make_pluginfile_url($image->get_contextid(), $image->get_component(), $image->get_filearea(),
-            $image->get_itemid(), $image->get_filepath(), $image->get_filename());
+    /**
+     * Test that calling writer::reset() causes a new copy of the writer to be returned.
+     *
+     * @covers ::reset
+     */
+    public function test_reset(): void {
+        $writer = writer::with_context(\context_system::instance());
+        writer::reset();
 
-        // Insert out test image into the data so it is exported.
-        $columns = ['animal', 'image'];
-        $row = ['cat', html_writer::img($imageurl->out(), 'My image')];
+        $this->assertNotSame($writer, writer::with_context(\context_system::instance()));
+    }
 
-        // Export to file. Assert that the exported file exists.
-        $exportfile = dataformat::write_data('My export', 'pdf', $columns, [$row]);
-        $this->assertFileExists($exportfile);
+    /**
+     * Test that the export_user_preference calls the writer against the system context.
+     *
+     * @covers ::export_user_preference
+     */
+    public function test_export_user_preference_sets_system_context(): void {
+        $writer = writer::with_context(\context_user::instance(\core_user::get_user_by_username('admin')->id));
 
-        // The exported file should be a reasonable size (~275kb).
-        $this->assertGreaterThan(270000, filesize($exportfile));
+        writer::export_user_preference('core_test', 'key', 'value', 'description');
+
+        $this->assertSame(\context_system::instance(), $writer->get_current_context());
     }
 }

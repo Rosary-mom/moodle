@@ -15,88 +15,57 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Strings for component 'contentbank', language 'en'
+ * Allows you to edit a users profile
  *
- * @package    core_contentbank
- * @copyright  2020 Amaia Anabitarte <amaia@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @copyright 2020 François Moreau
+ * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package core_user
  */
 
-$string['author'] = 'Author';
-$string['contentbank'] = 'Content bank';
-$string['choosecontext'] = 'Choose course or category...';
-$string['contentbankcustomfields'] = 'Content bank custom fields';
-$string['contentbankpreferences'] = 'Content bank preferences';
-$string['contentcopied'] = 'Content copied.';
-$string['contentdeleted'] = 'Content deleted.';
-$string['contentname'] = 'Content name';
-$string['contentnotdeleted'] = 'An error was encountered while trying to delete the content.';
-$string['contentnotrenamed'] = 'An error was encountered while trying to rename the content.';
-$string['contentrenamed'] = 'Content renamed.';
-$string['contentsmoved'] = 'Content bank contents moved to {$a}.';
-$string['contenttypenoaccess'] = 'You cannot view this {$a} instance.';
-$string['contenttypenoedit'] = 'You can not edit this content';
-$string['contentvisibilitychanged'] = 'Content is now {$a}.';
-$string['contentvisibilitynotset'] = 'An error was encountered while trying to set the content visibility.';
-$string['contentcreated'] = 'Content created.';
-$string['contentupdated'] = 'Content updated.';
-$string['contextnotallowed'] = 'You are not allowed to access the content bank in this context.';
-$string['copycontent'] = 'Copy content';
-$string['copyof'] = 'Copy of {$a}';
-$string['displayunlisted'] = 'Show unlisted content';
-$string['emptynamenotallowed'] = 'Empty name is not allowed';
-$string['eventcontentcreated'] = 'Content created';
-$string['eventcontentdeleted'] = 'Content deleted';
-$string['eventcontentreplaced'] = 'Content replaced with file';
-$string['eventcontentupdated'] = 'Content updated';
-$string['eventcontentuploaded'] = 'Content uploaded';
-$string['eventcontentviewed'] = 'Content viewed';
-$string['errordeletingcontentfromcategory'] = 'Error deleting content from category {$a}.';
-$string['errornofile'] = 'A compatible file is needed to create content.';
-$string['exit'] = 'Exit';
-$string['deletecontent'] = 'Delete content';
-$string['deletecontentconfirm'] = 'Are you sure you want to delete the content <em>\'{$a->name}\'</em> and all associated files? This action cannot be undone.';
-$string['deletecontentconfirmlinked'] = 'The content will only be deleted from the content bank. Any places which currently link to it will be automatically updated to use a copy of the content instead.';
-$string['displaydetails'] = 'Display content bank with file details';
-$string['displayicons'] = 'Display content bank with icons';
-$string['file'] = 'Upload content';
-$string['file_help'] = 'Files may be stored in the content bank for use in courses. Only files used by content types enabled on the site may be uploaded.';
-$string['itemsfound'] = '{$a} items found';
-$string['lastmodified'] = 'Last modified';
-$string['more'] = 'More';
-$string['name'] = 'Content';
-$string['nocontentavailable'] = 'No content available';
-$string['nocontenttypes'] = 'No content types available';
-$string['notavailable'] = 'Sorry, this content is not available.';
-$string['nopermissiontocopy'] = 'You do not have permission to copy content.';
-$string['nopermissiontodelete'] = 'You do not have permission to delete content.';
-$string['nopermissiontomanage'] = 'You do not have permission to manage content.';
-$string['notvalidpackage'] = 'Sorry, this file is not valid.';
-$string['privacy:metadata:content:contenttype'] = 'The contenttype plugin of the content in the content bank.';
-$string['privacy:metadata:content:name'] = 'Name of the content in the content bank.';
-$string['privacy:metadata:content:timecreated'] = 'The time when the content was created.';
-$string['privacy:metadata:content:timemodified'] = 'The time when the content was modified.';
-$string['privacy:metadata:content:usercreated'] = 'The user has created the content.';
-$string['privacy:metadata:content:usermodified'] = 'The last user who modified the content.';
-$string['privacy:metadata:contentbankcontent'] = 'Stores the content of the content bank.';
-$string['privacy:metadata:userid'] = 'The ID of the user creating or modifying content bank content.';
-$string['privacy:request:preference:set'] = 'The value of the setting \'{$a->name}\' was \'{$a->value}\'';
-$string['rename'] = 'Rename';
-$string['renamecontent'] = 'Rename content';
-$string['replacecontent'] = 'Replace with file';
-$string['searchcontentbankbyname'] = 'Search for content by name';
-$string['size'] = 'Size';
-$string['timecreated'] = 'Time created';
-$string['type'] = 'Type';
-$string['unsupported'] = 'This content type is not supported.';
-$string['upload'] = 'Upload';
-$string['uses'] = 'Places linked';
-$string['visibilitychoicepublic'] = 'Public';
-$string['visibilitychoiceunlisted'] = 'Unlisted';
-$string['public'] = 'public';
-$string['unlisted'] = 'unlisted';
-$string['visibilitypref'] = 'Default content visibility';
-$string['visibilitypref_help'] = 'Content you create in the content bank will use this visibility setting by default.';
-$string['visibilitysetpublic'] = 'Make public';
-$string['visibilitysetunlisted'] = 'Make unlisted';
-$string['visibilitytitleunlisted'] = '{$a} (Unlisted)';
+require_once('../config.php');
+require_once($CFG->dirroot.'/user/editlib.php');
+require_once($CFG->dirroot.'/user/lib.php');
+
+require_login();
+
+$userid = optional_param('id', $USER->id, PARAM_INT);    // User id.
+
+$PAGE->set_url('/user/contentbank.php', ['id' => $userid]);
+
+list($user, $course) = useredit_setup_preference_page($userid, SITEID);
+
+$form = new \core_user\form\contentbank_user_preferences_form(null, ['userid' => $user->id]);
+
+$user->contentvisibility = get_user_preferences('core_contentbank_visibility',
+    $CFG->defaultpreference_core_contentbank_visibility, $user->id);
+
+$form->set_data($user);
+
+$redirect = new moodle_url("/user/preferences.php", ['userid' => $user->id]);
+
+if ($form->is_cancelled()) {
+    redirect($redirect);
+} else if ($data = $form->get_data()) {
+    $data = $form->get_data();
+    $usernew = [
+        'id' => $user->id,
+        'preference_core_contentbank_visibility' => $data->contentvisibility
+    ];
+    useredit_update_user_preference($usernew);
+
+    \core\event\user_updated::create_from_userid($user->id)->trigger();
+    redirect($redirect);
+}
+
+$title = get_string('contentbankpreferences', 'core_contentbank');
+$userfullname = fullname($user, true);
+
+$PAGE->navbar->includesettingsbase = true;
+
+$PAGE->set_title("$course->shortname: $title");
+$PAGE->set_heading($userfullname);
+
+echo $OUTPUT->header();
+echo $OUTPUT->heading($title);
+$form->display();
+echo $OUTPUT->footer();

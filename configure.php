@@ -15,88 +15,107 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Configure communication for a given instance.
+ * Configure sms gateway for a given instance.
  *
- * @package    core_communication
- * @copyright  2023 David Woloszyn <david.woloszyn@moodle.com>
+ * @package    core_sms
+ * @copyright  2024 Safat Shahin <safat.shahin@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 require_once('../config.php');
-require_once('lib.php');
 
 require_login();
+$context = context_system::instance();
+require_capability('moodle/site:config', $context);
 
-$contextid = required_param('contextid', PARAM_INT);
-$instanceid = required_param('instanceid', PARAM_INT);
-$instancetype = required_param('instancetype', PARAM_TEXT);
-$component = required_param('component', PARAM_COMPONENT);
-$selectedcommunication = optional_param('selectedcommunication', null, PARAM_PLUGIN);
+$id = optional_param('id', null, PARAM_INT);
+$gateway = optional_param('smsgateway', null, PARAM_PLUGIN);
+$returnurl = optional_param('returnurl', null, PARAM_LOCALURL);
 
-$context = \core\context::instance_by_id($contextid);
-$instanceinfo = [
-    'contextid' => $context->id,
-    'instanceid' => $instanceid,
-    'instancetype' => $instancetype,
-    'component' => $component,
-];
-
-// Requires communication to be enabled.
-if (!core_communication\api::is_available()) {
-    throw new \moodle_exception('communicationdisabled', 'communication');
+$title = get_string('createnewgateway', 'sms');
+$data = [];
+$urlparams = [];
+if ($id) {
+    $urlparams['id'] = $id;
+}
+if ($gateway) {
+    $urlparams['gateway'] = $gateway;
 }
 
-// Attempt to load the communication instance with the provided params.
-$communication = \core_communication\api::load_by_instance(
-    context: $context,
-    component: $component,
-    instancetype: $instancetype,
-    instanceid: $instanceid,
-    provider: $selectedcommunication,
-);
-
-// No communication, no way this form can be used.
-if (!$communication) {
-    throw new \moodle_exception('nocommunicationinstance', 'communication');
+if (!empty($gateway)) {
+    $configs = new stdClass();
+    $configs->smsgateway = $gateway;
+    $data = [
+        'gatewayconfigs' => $configs,
+    ];
 }
 
-// Set variables according to the component callback and use them on the page.
-[$instance, $context, $heading, $returnurl] = component_callback(
-    $component,
-    'get_communication_instance_data',
-    [$instanceid]
-);
+if (!empty($id)) {
+    $manager = \core\di::get(\core_sms\manager::class);
+    $gatewayrecord = $manager->get_gateway_records(['id' => $id]);
+    $gatewayrecord = reset($gatewayrecord);
+    $plugin = explode('\\', $gatewayrecord->gateway);
+    $plugin = $plugin[0];
+    $configs = json_decode($gatewayrecord->config, true, 512, JSON_THROW_ON_ERROR);
+    $configs = (object) $configs;
+    $configs->smsgateway = $plugin;
+    $configs->id = $gatewayrecord->id;
+    $configs->name = $gatewayrecord->name;
+    $data = [
+        'gatewayconfigs' => $configs,
+    ];
 
-// Set up the page.
+    $a = ['gateway' => $gatewayrecord->name];
+    $title = get_string('edit_sms_gateway', 'sms', $a);
+}
+
 $PAGE->set_context($context);
-$PAGE->set_url('/communication/configure.php', $instanceinfo);
-$PAGE->set_title(get_string('communication', 'communication'));
-$PAGE->set_heading($heading);
-$PAGE->add_body_class('limitedwidth');
+$PAGE->set_url('/sms/configure.php', $urlparams);
+$PAGE->set_title($title);
+$PAGE->set_heading($title);
 
-// Append the instance data before passing to form object.
-$instanceinfo['instancedata'] = $instance;
+if (empty($returnurl)) {
+    $returnurl = new moodle_url('/sms/sms_gateways.php');
+} else {
+    $returnurl = new moodle_url($returnurl);
+}
+$data['returnurl'] = $returnurl;
 
-// Get our form definitions.
-$form = new \core_communication\form\configure_form(
-    context: $context,
-    instanceid: $instanceinfo['instanceid'],
-    instancetype: $instanceinfo['instancetype'],
-    component: $instanceinfo['component'],
-    selectedcommunication: $selectedcommunication,
-    instancedata: $instanceinfo['instancedata'],
-);
+$mform = new \core_sms\form\sms_gateway_form(customdata: $data);
 
+if ($mform->is_cancelled()) {
+    $data = $mform->get_data();
+    if (isset($data->returnurl)) {
+        redirect($data->returnurl);
+    } else {
+        redirect($returnurl);
+    }
+}
 
-if ($form->is_cancelled()) {
-    redirect($returnurl);
-} else if ($data = $form->get_data()) {
-    component_callback($component, 'update_communication_instance_data', [$data]);
+if ($data = $mform->get_data()) {
+    $manager = \core\di::get(\core_sms\manager::class);
+    $smsgateway = $data->smsgateway;
+    $gatewayname = $data->name;
+    // The $data will go into the database config column. If any data is not needed, unset it here.
+    unset($data->smsgateway, $data->name, $data->id, $data->saveandreturn, $data->returnurl);
+    if (!empty($id)) {
+        $gatewayinstance = $manager->get_gateway_instances(['id' => $id]);
+        $gatewayinstance = reset($gatewayinstance);
+        $gatewayinstance->name = $gatewayname;
+
+        $manager->update_gateway_instance($gatewayinstance, $data);
+    } else {
+        $classname = $smsgateway . '\\' . 'gateway';
+        $manager->create_gateway_instance(
+            classname: $classname,
+            name: $gatewayname,
+            enabled: true,
+            config: $data,
+        );
+    }
     redirect($returnurl);
 }
 
-// Display the page contents.
 echo $OUTPUT->header();
-echo $OUTPUT->heading(get_string('communication', 'communication'), 2);
-$form->display();
+$mform->display();
 echo $OUTPUT->footer();

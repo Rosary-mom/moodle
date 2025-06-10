@@ -1,4 +1,5 @@
 <?php
+
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -15,219 +16,629 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Strings for component 'install', language 'en', branch 'MOODLE_20_STABLE'
+ * This script creates config.php file during installation.
  *
- * @package   core
- * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package    core
+ * @subpackage install
+ * @copyright  2009 Petr Skoda (http://skodak.org)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['admindirerror'] = 'The admin directory specified is incorrect';
-$string['admindirname'] = 'Admin directory';
-$string['admindirsetting'] = 'A very few webhosts use /admin as a special URL for you to access a
-    control panel or something.  Unfortunately this conflicts with the
-    standard location for the Moodle admin pages.  You can fix this by
-    renaming the admin directory in your installation, and putting that
-    new name here.  For example: <br /> <br /><b>moodleadmin</b><br /> <br />
-    This will fix admin links in Moodle.';
-$string['admindirsettinghead'] = 'Setting the admin directory ...';
-$string['admindirsettingsub'] = 'A very few webhosts use /admin as a special URL for you to access a
-    control panel or something.  Unfortunately this conflicts with the
-    standard location for the Moodle admin pages.  You can fix this by
-    renaming the admin directory in your installation, and putting that
-    new name here.  For example: <br /> <br /><b>moodleadmin</b><br /> <br />
-    This will fix admin links in Moodle.';
-$string['availablelangs'] = 'Available language packs';
-$string['caution'] = 'Caution';
-$string['cliadminemail'] = 'New admin user email address';
-$string['cliadminpassword'] = 'New admin user password';
-$string['cliadminusername'] = 'Admin account username';
-$string['clialreadyconfigured'] = 'The configuration file config.php already exists. Please use admin/cli/install_database.php to install Moodle for this site.';
-$string['clialreadyinstalled'] = 'The configuration file config.php already exists. Please use admin/cli/install_database.php to upgrade Moodle for this site.';
-$string['cliinstallfinished'] = 'Installation completed successfully.';
-$string['cliinstallheader'] = 'Moodle {$a} command line installation program';
-$string['climustagreelicense'] = 'In non-interactive mode you must agree to the licence by specifying --agree-license option';
-$string['cliskipdatabase'] = 'Skipping database installation.';
-$string['clisupportemail'] = 'Support email address';
-$string['clitablesexist'] = 'Database tables already present; CLI installation cannot continue.';
-$string['compatibilitysettings'] = 'Checking your PHP settings ...';
-$string['compatibilitysettingshead'] = 'Checking your PHP settings ...';
-$string['compatibilitysettingssub'] = 'Your server should pass all these tests to make Moodle run properly';
-$string['configfilenotwritten'] = 'The installer script was not able to automatically create a config.php file containing your chosen settings, probably because the Moodle directory is not writeable. You can manually copy the following code into a file named config.php within the root directory of Moodle.';
-$string['configfilewritten'] = 'config.php has been successfully created';
-$string['configurationcomplete'] = 'Configuration completed';
-$string['configurationcompletehead'] = 'Configuration completed';
-$string['configurationcompletesub'] = 'Moodle made an attempt to save your configuration in a file in the root of your Moodle installation.';
-$string['database'] = 'Database';
-$string['databasehead'] = 'Database settings';
-$string['databasehost'] = 'Database host';
-$string['databasename'] = 'Database name';
-$string['databasepass'] = 'Database password';
-$string['databaseport'] = 'Database port';
-$string['databasesocket'] = 'Unix socket';
-$string['databasetypehead'] = 'Choose database driver';
-$string['databasetypesub'] = 'Moodle supports several types of database servers. Please contact server administrator if you do not know which type to use.';
-$string['databaseuser'] = 'Database user';
-$string['dataroot'] = 'Data directory';
-$string['datarooterror'] = 'The \'data directory\' you specified could not be found or created.  Either correct the path or create that directory manually.';
-$string['datarootpermission'] = 'Data directories permission';
-$string['datarootpublicerror'] = 'The \'data directory\' you specified is directly accessible via web, you must use different directory.';
-$string['dbconnectionerror'] = 'We could not connect to the database you specified. Please check your database settings.';
-$string['dbcreationerror'] = 'Database creation error. Could not create the given database name with the settings provided';
-$string['dbhost'] = 'Host server';
-$string['dbpass'] = 'Password';
-$string['dbport'] = 'Port';
-$string['dbprefix'] = 'Tables prefix';
-$string['dbtype'] = 'Type';
-$string['directorysettings'] = '<p>Please confirm the locations of this Moodle installation.</p>
+if (isset($_REQUEST['lang'])) {
+    $lang = preg_replace('/[^A-Za-z0-9_-]/i', '', $_REQUEST['lang']);
+} else {
+    $lang = 'en';
+}
 
-<p><b>Web address:</b>
-Specify the full web address where Moodle will be accessed.
-If your web site is accessible via multiple URLs then choose the
-most natural one that your students would use.  Do not include
-a trailing slash.</p>
+if (isset($_REQUEST['admin'])) {
+    $admin = preg_replace('/[^A-Za-z0-9_-]/i', '', $_REQUEST['admin']);
+} else {
+    $admin = 'admin';
+}
 
-<p><b>Moodle directory:</b>
-Specify the full directory path to this installation
-Make sure the upper/lower case is correct.</p>
+// If config.php exists we just created config.php and need to redirect to continue installation
+$configfile = './config.php';
+if (file_exists($configfile)) {
+    header("Location: $admin/index.php?lang=$lang");
+    die;
+}
 
-<p><b>Data directory:</b>
-You need a place where Moodle can save uploaded files.  This
-directory should be readable AND WRITEABLE by the web server user
-(usually \'nobody\' or \'apache\'), but it must not be accessible
-directly via the web. The installer will try to create it if doesn\'t exist.</p>';
-$string['directorysettingshead'] = 'Please confirm the locations of this Moodle installation';
-$string['directorysettingssub'] = '<b>Web address:</b>
-Specify the full web address where Moodle will be accessed.
-If your web site is accessible via multiple URLs then choose the
-most natural one that your students would use.  Do not include
-a trailing slash.
-<br />
-<br />
-<b>Moodle directory:</b>
-Specify the full directory path to this installation
-Make sure the upper/lower case is correct.
-<br />
-<br />
-<b>Data directory:</b>
-You need a place where Moodle can save uploaded files.  This
-directory must be readable AND WRITEABLE by the web server user
-(usually \'nobody\' or \'apache\'), but it must not be accessible
-directly via the web. The installer will try to create it if doesn\'t exist.';
-$string['dirroot'] = 'Moodle directory';
-$string['dirrooterror'] = 'The \'Moodle directory\' setting seems to be incorrect - we can\'t find a Moodle installation there. The value below has been reset.';
-$string['download'] = 'Download';
-$string['downloadlanguagebutton'] = 'Download the &quot;{$a}&quot; language pack';
-$string['downloadlanguagehead'] = 'Download language pack';
-$string['downloadlanguagenotneeded'] = 'You may continue the installation process using the default language pack, "{$a}".';
-$string['downloadlanguagesub'] = 'You now have the option of downloading a language pack and continuing the installation process in this language.<br /><br />If you are unable to download the language pack, the installation process will continue in English. (Once the installation process is complete, you will have the opportunity to download and install additional language packs.)';
-$string['doyouagree'] = 'Do you agree ? (yes/no):';
-$string['environmenthead'] = 'Checking your environment ...';
-$string['environmentsub'] = 'We are checking if the various components of your system meet the system requirements';
-$string['environmentsub2'] = 'Each Moodle release has some minimum PHP version requirement and a number of mandatory PHP extensions.
-Full environment check is done before each install and upgrade. Please contact server administrator if you do not know how to install new version or enable PHP extensions.';
-$string['errorsinenvironment'] = 'Environment check failed!';
-$string['fail'] = 'Fail';
-$string['fileuploads'] = 'File uploads';
-$string['fileuploadserror'] = 'This should be on';
-$string['fileuploadshelp'] = '<p>File uploading seems to be disabled on your server.</p>
+define('CLI_SCRIPT', false); // prevents some warnings later
+define('AJAX_SCRIPT', false); // prevents some warnings later
+define('CACHE_DISABLE_ALL', true); // Disables caching.. just in case.
+define('NO_DEBUG_DISPLAY', false);
+define('PHPUNIT_TEST', false);
+define('IGNORE_COMPONENT_CACHE', true);
+define('MDL_PERF_TEST', false);
+define('MDL_PERF', false);
+define('MDL_PERFTOFOOT', false);
+define('MDL_PERFTOLOG', false);
+define('MDL_PERFINC', false);
 
-<p>Moodle can still be installed, but without this ability, you will not be able
-   to upload course files or new user profile images.</p>
+// Servers should define a default timezone in php.ini, but if they don't then make sure something is defined.
+if (!function_exists('date_default_timezone_set') or !function_exists('date_default_timezone_get')) {
+    echo("Timezone functions are not available.");
+    die;
+}
+date_default_timezone_set(@date_default_timezone_get());
 
-<p>To enable file uploading you (or your system administrator) will need to
-   edit the main php.ini file on your system and change the setting for
-   <b>file_uploads</b> to \'1\'.</p>';
-$string['chooselanguage'] = 'Choose a language';
-$string['chooselanguagehead'] = 'Choose a language';
-$string['chooselanguagesub'] = 'Please choose a language for the installation. This language will also be used as the default language for the site, though it may be changed later.';
-$string['inputdatadirectory'] = 'Data directory:';
-$string['inputwebadress'] = 'Web address :';
-$string['inputwebdirectory'] = 'Moodle directory:';
-$string['installation'] = 'Installation';
-$string['invaliddbprefix'] = 'Invalid prefix. The prefix can only consist of lower case letters and underscore.';
-$string['langdownloaderror'] = 'Unfortunately the language "{$a}" could not be downloaded. The installation process will continue in English.';
-$string['langdownloadok'] = 'The language "{$a}" was installed successfully. The installation process will continue in this language.';
-$string['memorylimit'] = 'Memory limit';
-$string['memorylimiterror'] = 'The PHP memory limit is set quite low ... you may run into problems later.';
-$string['mysqliextensionisnotpresentinphp'] = 'PHP has not been properly configured with the MySQLi extension for it to communicate with MySQL. Please check your php.ini file or recompile PHP.';
-$string['nativeauroramysql'] = 'Aurora MySQL (native/auroramysql)';
-$string['nativeauroramysqlhelp'] = '<p>The database is where most of the Moodle settings and data are stored and must be configured here.</p>
-<p>The database name, username, and password are required fields; table prefix is optional.</p>
-<p>The database name may contain only alphanumeric characters, dollar ($) and underscore (_).</p>
-<p>If the database currently does not exist, and the user you specify has permission, Moodle will attempt to create a new database with the correct permissions and settings.</p>
-<p>This driver is not compatible with legacy MyISAM engine.</p>';
-$string['nativemariadb'] = 'MariaDB (native/mariadb)';
-$string['nativemariadbhelp'] = '<p>The database is where most of the Moodle settings and data are stored and must be configured here.</p>
-<p>The database name, username, and password are required fields; table prefix is optional.</p>
-<p>The database name may contain only alphanumeric characters, dollar ($) and underscore (_).</p>
-<p>If the database currently does not exist, and the user you specify has permission, Moodle will attempt to create a new database with the correct permissions and settings.</p>
-<p>This driver is not compatible with legacy MyISAM engine.</p>';
-$string['nativemysqli'] = 'Improved MySQL (native/mysqli)';
-$string['nativemysqlihelp'] = '<p>The database is where most of the Moodle settings and data are stored and must be configured here.</p>
-<p>The database name, username, and password are required fields; table prefix is optional.</p>
-<p>The database name may contain only alphanumeric characters, dollar ($) and underscore (_).</p>
-<p>If the database currently does not exist, and the user you specify has permission, Moodle will attempt to create a new database with the correct permissions and settings.</p>';
-$string['nativepgsql'] = 'PostgreSQL (native/pgsql)';
-$string['nativepgsqlhelp'] = '<p>The database is where most of the Moodle settings and data are stored and must be configured here.</p>
-<p>The database name, username, password and table prefix are required fields.</p>
-<p>The database must already exist and the user must have access to both read, and write to it.</p>';
-$string['nativesqlsrv'] = 'SQL*Server Microsoft (native/sqlsrv)';
-$string['nativesqlsrvhelp'] = 'Now you need to configure the database where most Moodle data will be stored.
-This database must already have been created and a username and password created to access it. Table prefix is mandatory.';
-$string['nativesqlsrvnodriver'] = 'Microsoft Drivers for SQL Server for PHP are not installed or not configured properly.';
-$string['pass'] = 'Pass';
-$string['paths'] = 'Paths';
-$string['pathserrcreatedataroot'] = 'Data directory ({$a->dataroot}) cannot be created by the installer.';
-$string['pathshead'] = 'Confirm paths';
-$string['pathsrodataroot'] = 'Dataroot directory is not writable.';
-$string['pathsroparentdataroot'] = 'Parent directory ({$a->parent}) is not writeable. Data directory ({$a->dataroot}) cannot be created by the installer.';
-$string['pathssubadmindir'] = 'A very few webhosts use /admin as a special URL for you to access a
-control panel or something.  Unfortunately this conflicts with the standard location for the Moodle admin pages.  You can fix this by
-renaming the admin directory in your installation, and putting that  new name here.  For example: <em>moodleadmin</em>. This will fix admin links in Moodle.';
-$string['pathssubdataroot'] = '<p>A directory where Moodle will store all file content uploaded by users.</p>
-<p>This directory should be both readable and writeable by the web server user (usually \'www-data\', \'nobody\', or \'apache\').</p>
-<p>It must not be directly accessible over the web.</p>
-<p>If the directory does not currently exist, the installation process will attempt to create it.</p>';
-$string['pathssubdirroot'] = '<p>The full path to the directory containing the Moodle code.</p>';
-$string['pathssubwwwroot'] = '<p>The full address where Moodle will be accessed i.e. the address that users will enter into the address bar of their browser to access Moodle.</p>
-<p>It is not possible to access Moodle using multiple addresses. If your site is accessible via multiple addresses then choose the easiest one and set up a permanent redirect for each of the other addresses.</p>
-<p>If your site is accessible both from the Internet, and from an internal network (sometimes called an Intranet), then use the public address here.</p>
-<p>If the current address is not correct, please change the URL in your browser\'s address bar and restart the installation.</p>';
-$string['pathsunsecuredataroot'] = 'Dataroot location is not secure';
-$string['pathswrongadmindir'] = 'Admin directory does not exist';
-$string['pgsqlextensionisnotpresentinphp'] = 'PHP has not been properly configured with the PGSQL extension so that it can communicate with PostgreSQL.  Please check your php.ini file or recompile PHP.';
-$string['phpextension'] = '{$a} PHP extension';
-$string['phpversion'] = 'PHP version';
-$string['releasenoteslink'] = 'For information about this version of Moodle, please see the release notes at {$a}';
-$string['safemode'] = 'Safe mode';
-$string['safemodeerror'] = 'Moodle may have trouble with safe mode on';
-$string['safemodehelp'] = '<p>Moodle may have a variety of problems with safe mode on, not least is that
-   it probably won\'t be allowed to create new files.</p>
+// make sure PHP errors are displayed - helps with diagnosing of problems
+@error_reporting(E_ALL);
+@ini_set('display_errors', '1');
 
-<p>Safe mode is usually only enabled by paranoid public web hosts, so you may have
-   to just find a new web hosting company for your Moodle site.</p>
+// Check that PHP is of a sufficient version as soon as possible.
+require_once(__DIR__.'/lib/phpminimumversionlib.php');
+moodle_require_minimum_php_version();
 
-<p>You can try continuing the install if you like, but expect a few problems later on.</p>';
-$string['sessionautostart'] = 'Session auto start';
-$string['sessionautostarterror'] = 'This should be off';
-$string['sessionautostarthelp'] = '<p>Moodle requires session support and will not function without it.</p>
+// make sure iconv is available and actually works
+if (!function_exists('iconv')) {
+    // this should not happen, this must be very borked install
+    echo 'Moodle requires the iconv PHP extension. Please install or enable the iconv extension.';
+    die();
+}
 
-<p>Sessions can be enabled in the php.ini file ... look for the session.auto_start parameter.</p>';
-$string['upgradingqtypeplugin'] = 'Upgrading question/type plugin';
-$string['welcomep10'] = '{$a->installername} ({$a->installerversion})';
-$string['welcomep20'] = 'You are seeing this page because you have successfully installed and
-    launched the <strong>{$a->packname} {$a->packversion}</strong> package in your computer. Congratulations!';
-$string['welcomep30'] = 'This release of the <strong>{$a->installername}</strong> includes the applications
-    to create an environment in which <strong>Moodle</strong> will operate, namely:';
-$string['welcomep40'] = 'The package also includes <strong>Moodle {$a->moodlerelease} ({$a->moodleversion})</strong>.';
-$string['welcomep50'] = 'The use of all the applications in this package is governed by their respective licences. The complete <strong>{$a->installername}</strong> package is <a href="https://www.opensource.org/docs/definition_plain.html">open source</a> and is distributed under the <a href="https://www.gnu.org/copyleft/gpl.html">GPL</a> license.';
-$string['welcomep60'] = 'The following pages will lead you through some easy to follow steps to
-    configure and set up <strong>Moodle</strong> on your computer. You may accept the default
-    settings or, optionally, amend them to suit your own needs.';
-$string['welcomep70'] = 'Click the "Next" button below to continue with the set up of <strong>Moodle</strong>.';
-$string['wwwroot'] = 'Web address';
-$string['wwwrooterror'] = 'The \'Web Address\' does not appear to be valid - this Moodle installation doesn\'t appear to be there. The value below has been reset.';
+if (PHP_INT_SIZE > 4) {
+    // most probably 64bit PHP - we need a lot more memory
+    $minrequiredmemory = '70M';
+} else {
+    // 32bit PHP
+    $minrequiredmemory = '40M';
+}
+// increase or decrease available memory - we need to make sure moodle
+// installs even with low memory, otherwise developers would overlook
+// sudden increases of memory needs ;-)
+@ini_set('memory_limit', $minrequiredmemory);
 
-// Deprecated since Moodle 5.0.
-$string['sqliteextensionisnotpresentinphp'] = 'PHP has not been properly configured with the SQLite extension.  Please check your php.ini file or recompile PHP.';
+/** Used by library scripts to check they are being called by Moodle */
+define('MOODLE_INTERNAL', true);
+
+require_once(__DIR__.'/lib/classes/component.php');
+require_once(__DIR__.'/lib/installlib.php');
+
+// TODO: add lang detection here if empty $_REQUEST['lang']
+
+// distro specific customisation
+$distro = null;
+if (file_exists('install/distrolib.php')) {
+    require_once('install/distrolib.php');
+    if (function_exists('distro_get_config')) {
+        $distro = distro_get_config();
+    }
+}
+
+$config = new stdClass();
+$config->lang = $lang;
+
+if (!empty($_POST)) {
+    $config->stage = (int)$_POST['stage'];
+
+    if (isset($_POST['previous'])) {
+        $config->stage--;
+        if (INSTALL_DATABASETYPE and !empty($distro->dbtype)) {
+            $config->stage--;
+        }
+        if ($config->stage == INSTALL_ENVIRONMENT or $config->stage == INSTALL_DOWNLOADLANG) {
+            $config->stage--;
+        }
+    } else if (isset($_POST['next'])) {
+        $config->stage++;
+    }
+
+    $config->dbtype   = trim($_POST['dbtype']);
+    $config->dbhost   = trim($_POST['dbhost']);
+    $config->dbuser   = trim($_POST['dbuser']);
+    $config->dbpass   = trim($_POST['dbpass']);
+    $config->dbname   = trim($_POST['dbname']);
+    $config->prefix   = trim($_POST['prefix']);
+    $config->dbport   = (int)trim($_POST['dbport']);
+    $config->dbsocket = trim($_POST['dbsocket']);
+
+    if ($config->dbport <= 0) {
+        $config->dbport = '';
+    }
+
+    $config->admin    = empty($_POST['admin']) ? 'admin' : trim($_POST['admin']);
+
+    $config->dataroot = trim($_POST['dataroot']);
+
+} else {
+    $config->stage    = INSTALL_WELCOME;
+
+    $config->dbtype   = empty($distro->dbtype) ? '' : $distro->dbtype; // let distro skip dbtype selection
+    $config->dbhost   = empty($distro->dbhost) ? 'localhost' : $distro->dbhost; // let distros set dbhost
+    $config->dbuser   = empty($distro->dbuser) ? '' : $distro->dbuser; // let distros set dbuser
+    $config->dbpass   = '';
+    $config->dbname   = 'moodle';
+    $config->prefix   = 'mdl_';
+    $config->dbport   = empty($distro->dbport) ? '' : $distro->dbport;
+    $config->dbsocket = empty($distro->dbsocket) ? '' : $distro->dbsocket;
+
+    $config->admin    = 'admin';
+
+    $config->dataroot = empty($distro->dataroot) ? null  : $distro->dataroot; // initialised later after including libs or by distro
+}
+
+// Fake some settings so that we can use selected functions from moodlelib.php, weblib.php and filelib.php.
+global $CFG;
+$CFG = new stdClass();
+$CFG->lang                 = $config->lang;
+$CFG->dirroot              = __DIR__;
+$CFG->libdir               = "$CFG->dirroot/lib";
+$CFG->wwwroot              = install_guess_wwwroot(); // can not be changed - ppl must use the real address when installing
+$CFG->httpswwwroot         = $CFG->wwwroot;
+$CFG->dataroot             = $config->dataroot;
+$CFG->tempdir              = $CFG->dataroot.'/temp';
+$CFG->backuptempdir        = $CFG->tempdir.'/backup';
+$CFG->cachedir             = $CFG->dataroot.'/cache';
+$CFG->localcachedir        = $CFG->dataroot.'/localcache';
+$CFG->admin                = $config->admin;
+$CFG->docroot              = 'https://docs.moodle.org';
+$CFG->langotherroot        = $CFG->dataroot.'/lang';
+$CFG->langlocalroot        = $CFG->dataroot.'/lang';
+$CFG->directorypermissions = isset($distro->directorypermissions) ? $distro->directorypermissions : 00777; // let distros set dir permissions
+$CFG->filepermissions      = ($CFG->directorypermissions & 0666);
+$CFG->umaskpermissions     = (($CFG->directorypermissions & 0777) ^ 0777);
+$CFG->running_installer    = true;
+$CFG->early_install_lang   = true;
+$CFG->ostype               = (stristr(PHP_OS, 'win') && !stristr(PHP_OS, 'darwin')) ? 'WINDOWS' : 'UNIX';
+$CFG->debug                = (E_ALL);
+$CFG->debugdisplay         = true;
+$CFG->debugdeveloper       = true;
+
+// Require all needed libs
+require_once($CFG->libdir.'/setuplib.php');
+
+// we need to make sure we have enough memory to load all libraries
+$memlimit = @ini_get('memory_limit');
+if (!empty($memlimit) and $memlimit != -1) {
+    if (get_real_size($memlimit) < get_real_size($minrequiredmemory)) {
+        // do NOT localise - lang strings would not work here and we CAN not move it to later place
+        echo "Moodle requires at least {$minrequiredmemory}B of PHP memory.<br />";
+        echo "Please contact server administrator to fix PHP.ini memory settings.";
+        die;
+    }
+}
+
+// Point pear include path to moodles lib/pear so that includes and requires will search there for files before anywhere else
+// the problem is that we need specific version of quickforms and hacked excel files :-(.
+ini_set('include_path', $CFG->libdir.'/pear' . PATH_SEPARATOR . ini_get('include_path'));
+
+// Register our classloader.
+\core\component::register_autoloader();
+
+// Continue with lib loading.
+require_once($CFG->libdir.'/classes/text.php');
+require_once($CFG->libdir.'/classes/string_manager.php');
+require_once($CFG->libdir.'/classes/string_manager_install.php');
+require_once($CFG->libdir.'/classes/string_manager_standard.php');
+require_once($CFG->libdir.'/weblib.php');
+require_once($CFG->libdir.'/outputlib.php');
+require_once($CFG->libdir.'/dmllib.php');
+require_once($CFG->libdir.'/moodlelib.php');
+require_once($CFG->libdir .'/pagelib.php');
+require_once($CFG->libdir.'/deprecatedlib.php');
+require_once($CFG->libdir.'/adminlib.php');
+require_once($CFG->libdir.'/environmentlib.php');
+require_once($CFG->libdir.'/componentlib.class.php');
+
+require('version.php');
+$CFG->target_release = $release;
+
+\core\session\manager::init_empty_session();
+global $SESSION;
+global $USER;
+
+global $COURSE;
+$COURSE = new stdClass();
+$COURSE->id = 1;
+
+global $SITE;
+$SITE = $COURSE;
+define('SITEID', 1);
+
+$hint_dataroot = '';
+$hint_admindir = '';
+$hint_database = '';
+
+//first time here? find out suitable dataroot
+if (is_null($CFG->dataroot)) {
+    $CFG->dataroot = __DIR__.'/../moodledata';
+
+    $i = 0; //safety check - dirname might return some unexpected results
+    while(is_dataroot_insecure()) {
+        $parrent = dirname($CFG->dataroot);
+        $i++;
+        if ($parrent == '/' or $parrent == '.' or preg_match('/^[a-z]:\\\?$/i', $parrent) or ($i > 100)) {
+            $CFG->dataroot = ''; //can not find secure location for dataroot
+            break;
+        }
+        $CFG->dataroot = dirname($parrent).DIRECTORY_SEPARATOR.'moodledata';
+    }
+    $config->dataroot = $CFG->dataroot;
+    $config->stage    = INSTALL_WELCOME;
+}
+
+// now let's do the stage work
+if ($config->stage < INSTALL_WELCOME) {
+    $config->stage = INSTALL_WELCOME;
+}
+if ($config->stage > INSTALL_SAVE) {
+    $config->stage = INSTALL_SAVE;
+}
+
+
+
+if ($config->stage == INSTALL_SAVE) {
+    $CFG->early_install_lang = false;
+
+    $database = moodle_database::get_driver_instance($config->dbtype, 'native');
+    if (!$database->driver_installed()) {
+        $config->stage = INSTALL_DATABASETYPE;
+    } else {
+        if (function_exists('distro_pre_create_db')) { // Hook for distros needing to do something before DB creation
+            $distro = distro_pre_create_db($database, $config->dbhost, $config->dbuser, $config->dbpass, $config->dbname, $config->prefix, array('dbpersist'=>0, 'dbport'=>$config->dbport, 'dbsocket'=>$config->dbsocket), $distro);
+        }
+        $hint_database = install_db_validate($database, $config->dbhost, $config->dbuser, $config->dbpass, $config->dbname, $config->prefix, array('dbpersist'=>0, 'dbport'=>$config->dbport, 'dbsocket'=>$config->dbsocket));
+
+        if ($hint_database === '') {
+            $configphp = install_generate_configphp($database, $CFG);
+
+            umask(0137);
+            if (($fh = @fopen($configfile, 'w')) !== false) {
+                fwrite($fh, $configphp);
+                fclose($fh);
+            }
+
+            if (file_exists($configfile)) {
+                // config created, let's continue!
+                redirect("$CFG->wwwroot/$config->admin/index.php?lang=$config->lang");
+            }
+
+            install_print_header($config, 'config.php',
+                                          get_string('configurationcompletehead', 'install'),
+                                          get_string('configurationcompletesub', 'install').get_string('configfilenotwritten', 'install'), 'alert-error');
+            echo '<div class="configphp"><pre>';
+            echo p($configphp);
+            echo '</pre></div>';
+
+            install_print_footer($config);
+            die;
+
+        } else {
+            $config->stage = INSTALL_DATABASE;
+        }
+    }
+}
+
+
+
+if ($config->stage == INSTALL_DOWNLOADLANG) {
+    if (empty($CFG->dataroot)) {
+        $config->stage = INSTALL_PATHS;
+
+    } else if (is_dataroot_insecure()) {
+        $hint_dataroot = get_string('pathsunsecuredataroot', 'install');
+        $config->stage = INSTALL_PATHS;
+
+    } else if (!file_exists($CFG->dataroot)) {
+        $a = new stdClass();
+        $a->parent = dirname($CFG->dataroot);
+        $a->dataroot = $CFG->dataroot;
+        if (!is_writable($a->parent)) {
+            $hint_dataroot = get_string('pathsroparentdataroot', 'install', $a);
+            $config->stage = INSTALL_PATHS;
+        } else {
+            if (!install_init_dataroot($CFG->dataroot, $CFG->directorypermissions)) {
+                $hint_dataroot = get_string('pathserrcreatedataroot', 'install', $a);
+                $config->stage = INSTALL_PATHS;
+            }
+        }
+
+    } else if (!install_init_dataroot($CFG->dataroot, $CFG->directorypermissions)) {
+        $hint_dataroot = get_string('pathserrcreatedataroot', 'install', array('dataroot' => $CFG->dataroot));
+        $config->stage = INSTALL_PATHS;
+    }
+
+    if (empty($hint_dataroot) and !is_writable($CFG->dataroot)) {
+        $hint_dataroot = get_string('pathsrodataroot', 'install');
+        $config->stage = INSTALL_PATHS;
+    }
+
+    if ($config->admin === '' or !file_exists($CFG->dirroot.'/'.$config->admin.'/environment.xml')) {
+        $hint_admindir = get_string('pathswrongadmindir', 'install');
+        $config->stage = INSTALL_PATHS;
+    }
+}
+
+
+
+if ($config->stage == INSTALL_DOWNLOADLANG) {
+    // no need to download anything if en lang selected
+    if ($CFG->lang == 'en') {
+        $config->stage = INSTALL_DATABASETYPE;
+    }
+}
+
+
+
+if ($config->stage == INSTALL_DATABASETYPE) {
+    // skip db selection if distro package supports only one db
+    if (!empty($distro->dbtype)) {
+        $config->stage = INSTALL_DATABASE;
+    }
+}
+
+
+if ($config->stage == INSTALL_DOWNLOADLANG) {
+    $downloaderror = '';
+
+    // download and install required lang packs, the lang dir has already been created in install_init_dataroot
+    $installer = new lang_installer($CFG->lang);
+    $results = $installer->run();
+    foreach ($results as $langcode => $langstatus) {
+        if ($langstatus === lang_installer::RESULT_DOWNLOADERROR) {
+            $a       = new stdClass();
+            $a->url  = $installer->lang_pack_url($langcode);
+            $a->dest = $CFG->dataroot.'/lang';
+            $downloaderror = get_string('remotedownloaderror', 'error', $a);
+        }
+    }
+
+    if ($downloaderror !== '') {
+        install_print_header($config, get_string('language'), get_string('langdownloaderror', 'install', $CFG->lang), $downloaderror);
+        install_print_footer($config);
+        die;
+    } else {
+        if (empty($distro->dbtype)) {
+            $config->stage = INSTALL_DATABASETYPE;
+        } else {
+            $config->stage = INSTALL_DATABASE;
+        }
+    }
+
+    // switch the string_manager instance to stop using install/lang/
+    $CFG->early_install_lang = false;
+    $CFG->langotherroot      = $CFG->dataroot.'/lang';
+    $CFG->langlocalroot      = $CFG->dataroot.'/lang';
+    get_string_manager(true);
+}
+
+
+if ($config->stage == INSTALL_DATABASE) {
+    $CFG->early_install_lang = false;
+
+    $database = moodle_database::get_driver_instance($config->dbtype, 'native');
+
+    $sub = '<h3>'.$database->get_name().'</h3>'.$database->get_configuration_help();
+
+    install_print_header($config, get_string('database', 'install'), get_string('databasehead', 'install'), $sub);
+
+    $strdbhost   = get_string('databasehost', 'install');
+    $strdbname   = get_string('databasename', 'install');
+    $strdbuser   = get_string('databaseuser', 'install');
+    $strdbpass   = get_string('databasepass', 'install');
+    $strprefix   = get_string('dbprefix', 'install');
+    $strdbport   = get_string('databaseport', 'install');
+    $strdbsocket = get_string('databasesocket', 'install');
+
+    echo '<div class="row mb-4">';
+
+    $disabled = empty($distro->dbhost) ? '' : 'disabled="disabled';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dbhost">'.$strdbhost.'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dbhost" name="dbhost" '.$disabled.' type="text" class="form-control text-ltr" value="'.s($config->dbhost).'" size="50" /></div>';
+    echo '</div>';
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dbname">'.$strdbname.'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dbname" name="dbname" type="text" class="form-control text-ltr" value="'.s($config->dbname).'" size="50" /></div>';
+    echo '</div>';
+
+    $disabled = empty($distro->dbuser) ? '' : 'disabled="disabled';
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dbuser">'.$strdbuser.'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dbuser" name="dbuser" '.$disabled.' type="text" class="form-control text-ltr" value="'.s($config->dbuser).'" size="50" /></div>';
+    echo '</div>';
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dbpass">'.$strdbpass.'</label></div>';
+    // no password field here, the password may be visible in config.php if we can not write it to disk
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dbpass" name="dbpass" type="text" class="form-control text-ltr" value="'.s($config->dbpass).'" size="50" /></div>';
+    echo '</div>';
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_prefix">'.$strprefix.'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_prefix" name="prefix" type="text" class="form-control text-ltr" value="'.s($config->prefix).'" size="10" /></div>';
+    echo '</div>';
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_prefix">'.$strdbport.'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dbport" name="dbport" type="text" class="form-control text-ltr" value="'.s($config->dbport).'" size="10" /></div>';
+    echo '</div>';
+
+    if (!(stristr(PHP_OS, 'win') && !stristr(PHP_OS, 'darwin'))) {
+        echo '<div class="row mb-4">';
+        echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dbsocket">'.$strdbsocket.'</label></div>';
+        echo '<div class="col-md-9" data-fieldtype="text">';
+        echo '<input id="id_dbsocket" name="dbsocket" type="text" class="form-control text-ltr" value="'.s($config->dbsocket).'" size="50" /></div>';
+        echo '</div>';
+    }
+
+    if ($hint_database !== '') {
+        echo '<div class="alert alert-danger">'.$hint_database.'</div>';
+    }
+
+    install_print_footer($config);
+    die;
+}
+
+
+if ($config->stage == INSTALL_DATABASETYPE) {
+    $CFG->early_install_lang = false;
+
+    // Finally ask for DB type
+    install_print_header($config, get_string('database', 'install'),
+                                  get_string('databasetypehead', 'install'),
+                                  get_string('databasetypesub', 'install'));
+
+    $databases = array('mysqli' => moodle_database::get_driver_instance('mysqli', 'native'),
+                       'auroramysql' => moodle_database::get_driver_instance('auroramysql', 'native'),
+                       'mariadb'=> moodle_database::get_driver_instance('mariadb', 'native'),
+                       'pgsql'  => moodle_database::get_driver_instance('pgsql',  'native'),
+                       'sqlsrv' => moodle_database::get_driver_instance('sqlsrv', 'native'), // MS SQL*Server PHP driver
+                      );
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="dbtype">'.get_string('dbtype', 'install').'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="select">';
+    echo '<select class="form-control" id="dbtype" name="dbtype">';
+    $disabled = array();
+    $options = array();
+    foreach ($databases as $type=>$database) {
+        if ($database->driver_installed() !== true) {
+            $disabled[$type] = $database;
+            continue;
+        }
+        echo '<option value="'.s($type).'">'.$database->get_name().'</option>';
+    }
+    if ($disabled) {
+        echo '<optgroup label="'.s(get_string('notavailable')).'">';
+        foreach ($disabled as $type=>$database) {
+            echo '<option value="'.s($type).'" class="notavailable">'.$database->get_name().'</option>';
+        }
+        echo '</optgroup>';
+    }
+    echo '</select></div></div>';
+
+    install_print_footer($config);
+    die;
+}
+
+
+
+if ($config->stage == INSTALL_ENVIRONMENT or $config->stage == INSTALL_PATHS) {
+    $curl_fail    = ($lang !== 'en' and !extension_loaded('curl')); // needed for lang pack download
+    $zip_fail     = ($lang !== 'en' and !extension_loaded('zip'));  // needed for lang pack download
+
+    if ($curl_fail or $zip_fail) {
+        $config->stage = INSTALL_ENVIRONMENT;
+
+        install_print_header($config, get_string('environmenthead', 'install'),
+                                      get_string('errorsinenvironment', 'install'),
+                                      get_string('environmentsub2', 'install'));
+
+        echo '<div id="envresult"><dl>';
+        if ($curl_fail) {
+            echo '<dt>'.get_string('phpextension', 'install', 'cURL').'</dt><dd>'.get_string('environmentrequireinstall', 'admin').'</dd>';
+        }
+        if ($zip_fail) {
+            echo '<dt>'.get_string('phpextension', 'install', 'Zip').'</dt><dd>'.get_string('environmentrequireinstall', 'admin').'</dd>';
+        }
+        echo '</dl></div>';
+
+        install_print_footer($config, true);
+        die;
+
+    } else {
+        $config->stage = INSTALL_PATHS;
+    }
+}
+
+
+
+if ($config->stage == INSTALL_PATHS) {
+    $paths = array('wwwroot'  => get_string('wwwroot', 'install'),
+                   'dirroot'  => get_string('dirroot', 'install'),
+                   'dataroot' => get_string('dataroot', 'install'));
+
+    $sub = '<dl>';
+    foreach ($paths as $path=>$name) {
+        $sub .= '<dt>'.$name.'</dt><dd>'.get_string('pathssub'.$path, 'install').'</dd>';
+    }
+    if (!file_exists("$CFG->dirroot/admin/environment.xml")) {
+        $sub .= '<dt>'.get_string('admindirname', 'install').'</dt><dd>'.get_string('pathssubadmindir', 'install').'</dd>';
+    }
+    $sub .= '</dl>';
+
+    install_print_header($config, get_string('paths', 'install'), get_string('pathshead', 'install'), $sub);
+
+    $strwwwroot      = get_string('wwwroot', 'install');
+    $strdirroot      = get_string('dirroot', 'install');
+    $strdataroot     = get_string('dataroot', 'install');
+    $stradmindirname = get_string('admindirname', 'install');
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_wwwroot">'.$paths['wwwroot'].'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_wwwroot" name="wwwroot" type="text" class="form-control text-ltr" value="'.s($CFG->wwwroot).'" disabled="disabled" size="70" /></div>';
+    echo '</div>';
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dirroot">'.$paths['dirroot'].'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dirroot" name="dirroot" type="text" class="form-control text-ltr" value="'.s($CFG->dirroot).'" disabled="disabled" size="70" /></div>';
+    echo '</div>';
+
+    echo '<div class="row mb-4">';
+    echo '<div class="col-md-3 text-md-end pt-1"><label for="id_dataroot">'.$paths['dataroot'].'</label></div>';
+    echo '<div class="col-md-9" data-fieldtype="text">';
+    echo '<input id="id_dataroot" name="dataroot" type="text" class="form-control text-ltr" value="'.s($config->dataroot).'" size="70" /></div>';
+    echo '</div>';
+    if ($hint_dataroot !== '') {
+        echo '<div class="alert alert-danger">'.$hint_dataroot.'</div>';
+    }
+
+
+    if (!file_exists("$CFG->dirroot/admin/environment.xml")) {
+        echo '<div class="row mb-4">';
+        echo '<div class="col-md-3 text-md-end pt-1"><label for="id_admin">'.$paths['admindir'].'</label></div>';
+        echo '<div class="col-md-9" data-fieldtype="text">';
+        echo '<input id="id_admin" name="admin" type="text" class="form-control text-ltr" value="'.s($config->admin).'" size="10" /></div>';
+        echo '</div>';
+        if ($hint_admindir !== '') {
+            echo '<div class="alert alert-danger">'.$hint_admindir.'</div>';
+        }
+    }
+
+    install_print_footer($config);
+    die;
+}
+
+
+
+$config->stage = INSTALL_WELCOME;
+
+if ($distro) {
+    ob_start();
+    include('install/distribution.html');
+    $sub = ob_get_clean();
+
+    install_print_header($config, get_string('language'),
+                                  get_string('chooselanguagehead', 'install'),
+                                  $sub, 'alert-success');
+
+} else {
+    install_print_header($config, get_string('language'),
+                                  get_string('chooselanguagehead', 'install'),
+                                  get_string('chooselanguagesub', 'install'));
+}
+
+$languages = get_string_manager()->get_list_of_translations();
+echo '<div class="row mb-4">';
+echo '<div class="col-md-3 text-md-end pt-1"><label for="langselect">'.get_string('language').'</label></div>';
+echo '<div class="col-md-9" data-fieldtype="select">';
+echo '<select id="langselect" class="form-control" name="lang" onchange="this.form.submit()">';
+foreach ($languages as $name=>$value) {
+    $selected = ($name == $CFG->lang) ? 'selected="selected"' : '';
+    echo '<option value="'.s($name).'" '.$selected.'>'.$value.'</option>';
+}
+echo '</select></div>';
+echo '</div>';
+
+install_print_footer($config);
+die;

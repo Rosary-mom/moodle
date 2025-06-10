@@ -1,4 +1,5 @@
 <?php
+
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -15,15 +16,22 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version details
+ * MOODLE VERSION INFORMATION.
  *
- * @package   media_youtube
- * @copyright 2016 Marina Glancy
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * This file defines the current version of the core Moodle code being used.
+ * This is compared against the values stored in the database to determine
+ * whether upgrades should be performed (see lib/db/*.php)
+ *
+ * @package    core
+ * @copyright  1999 onwards Martin Dougiamas (http://dougiamas.com)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2025041400;      // The current plugin version (Date: YYYYMMDDXX).
-$plugin->requires  = 2025040800;      // Requires this Moodle version.
-$plugin->component = 'media_youtube'; // Full name of the plugin (used for diagnostics).
+$version  = 2025041401.00;              // 20250414      = branching date YYYYMMDD - do not modify!
+                                        //         RR    = release increments - 00 in DEV branches.
+                                        //           .XX = incremental changes.
+$release  = '5.0.1 (Build: 20250609)';    // Human-friendly version name
+$branch   = '500';                      // This version's branch.
+$maturity = MATURITY_STABLE;            // This version's maturity level.

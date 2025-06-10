@@ -14,95 +14,76 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-
 /**
- * Form page for blog preferences
+ * Preferences.
  *
- * @package    moodlecore
- * @subpackage blog
- * @copyright  2009 Nicolas Connault
+ * @package    core_user
+ * @copyright  2015 Frédéric Massart - FMCorz.net
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once($CFG->dirroot.'/blog/lib.php');
-require_once('preferences_form.php');
-require_once($CFG->dirroot.'/user/editlib.php');
+require_once(__DIR__ . '/../config.php');
+require_once($CFG->libdir . '/navigationlib.php');
 
-$courseid = optional_param('courseid', SITEID, PARAM_INT);
-$modid    = optional_param('modid', null, PARAM_INT);
-$userid   = optional_param('userid', null, PARAM_INT);
-$tagid    = optional_param('tagid', null, PARAM_INT);
-$groupid      = optional_param('groupid', null, PARAM_INT);
-
-$url = new moodle_url('/blog/preferences.php');
-if ($courseid !== SITEID) {
-    $url->param('courseid', $courseid);
-}
-if ($modid !== null) {
-    $url->param('modid', $modid);
-}
-if ($userid !== null) {
-    $url->param('userid', $userid);
-}
-if ($tagid !== null) {
-    $url->param('tagid', $tagid);
-}
-if ($groupid !== null) {
-    $url->param('groupid', $groupid);
-}
-
-$PAGE->set_url($url);
-$PAGE->set_pagelayout('admin');
-
-$sitecontext = context_system::instance();
-$usercontext = context_user::instance($USER->id);
-$PAGE->set_context($usercontext);
-require_login($courseid);
-
-if (empty($CFG->enableblogs)) {
-    throw new \moodle_exception('blogdisable', 'blog');
-}
-
+require_login(null, false);
 if (isguestuser()) {
-    throw new \moodle_exception('noguest');
+    throw new require_login_exception('Guests are not allowed here.');
 }
 
-// The preference is site wide not blog specific. Hence user should have permissions in site level.
-require_capability('moodle/blog:view', $sitecontext);
+$userid = optional_param('userid', $USER->id, PARAM_INT);
+$currentuser = $userid == $USER->id;
 
-// If data submitted, then process and store.
+// Check that the user is a valid user.
+$user = core_user::get_user($userid);
+if (!$user || !core_user::is_real_user($userid)) {
+    throw new moodle_exception('invaliduser', 'error');
+}
 
-$mform = new blog_preferences_form('preferences.php');
-$mform->set_data(array('pagesize' => get_user_preferences('blogpagesize')));
+$PAGE->set_context(context_user::instance($userid));
+$PAGE->set_url('/user/preferences.php', array('userid' => $userid));
+$PAGE->set_pagelayout('admin');
+$PAGE->add_body_class('limitedwidth');
+$PAGE->set_pagetype('user-preferences');
+$PAGE->set_title(get_string('preferences'));
+$PAGE->set_heading(fullname($user));
 
-if (!$mform->is_cancelled() && $data = $mform->get_data()) {
-    $pagesize = $data->pagesize;
-
-    if ($pagesize < 1) {
-        throw new \moodle_exception('invalidpagesize');
+if (!$currentuser) {
+    $PAGE->navigation->extend_for_user($user);
+    // Need to check that settings exist.
+    if ($settings = $PAGE->settingsnav->find('userviewingsettings' . $user->id, null)) {
+        $settings->make_active();
     }
-    useredit_update_user_preference(['id' => $USER->id,
-        'preference_blogpagesize' => $pagesize]);
+    $url = new moodle_url('/user/preferences.php', array('userid' => $userid));
+    $navbar = $PAGE->navbar->add(get_string('preferences', 'moodle'), $url);
+    // Show an error if there are no preferences that this user has access to.
+    if (!$PAGE->settingsnav->can_view_user_preferences($userid)) {
+        throw new moodle_exception('cannotedituserpreferences', 'error');
+    }
+} else {
+    // Shutdown the users node in the navigation menu.
+    $usernode = $PAGE->navigation->find('users', null);
+    $usernode->make_inactive();
+
+    $settings = $PAGE->settingsnav->find('usercurrentsettings', null);
+    $settings->make_active();
 }
 
-if ($mform->is_cancelled()) {
-    redirect($CFG->wwwroot . '/user/preferences.php');
+// Identifying the nodes.
+$groups = array();
+$orphans = array();
+foreach ($settings->children as $setting) {
+    if ($setting->has_children()) {
+        $groups[] = new preferences_group($setting->get_content(), $setting->children);
+    } else {
+        $orphans[] = $setting;
+    }
 }
-
-$site = get_site();
-
-$strpreferences = get_string('preferences');
-$strblogs       = get_string('blogs', 'blog');
-
-$title = "$strblogs : $strpreferences";
-$PAGE->set_title($title);
-$PAGE->set_heading(fullname($USER));
+if (!empty($orphans)) {
+    $groups[] = new preferences_group(get_string('miscellaneous'), $orphans);
+}
+$preferences = new preferences_groups($groups);
 
 echo $OUTPUT->header();
-
-echo $OUTPUT->heading("$strblogs : $strpreferences", 2);
-
-$mform->display();
-
+echo $OUTPUT->heading(get_string('preferences'));
+echo $OUTPUT->render($preferences);
 echo $OUTPUT->footer();

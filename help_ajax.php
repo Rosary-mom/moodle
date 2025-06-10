@@ -1,4 +1,5 @@
 <?php
+
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -15,37 +16,25 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * BC user image location
+ * Displays help via AJAX call
  *
- * @package   core_user
- * @category  files
- * @copyright 2010 Petr Skoda (http://skodak.org)
+ * @copyright 2013 onwards Andrew Nicols
+ * @package   core
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-define('NO_DEBUG_DISPLAY', true);
-define('NOMOODLECOOKIE', 1);
+define('NO_MOODLE_COOKIES', true);
+define('AJAX_SCRIPT', true);
+require_once(__DIR__ . '/config.php');
 
-require('../config.php');
+$identifier = required_param('identifier', PARAM_STRINGID);
+$component  = required_param('component', PARAM_COMPONENT);
+$lang       = optional_param('lang', 'en', PARAM_LANG);
 
-$PAGE->set_url('/user/pix.php');
-$PAGE->set_context(null);
+// We don't actually modify the session here as we have NO_MOODLE_COOKIES set.
+$SESSION->lang = $lang;
+$PAGE->set_url('/help_ajax.php');
+$PAGE->set_context(context_system::instance());
 
-$relativepath = get_file_argument('pix.php');
-
-$args = explode('/', trim($relativepath, '/'));
-
-if (count($args) == 2) {
-    $userid = (integer)$args[0];
-    if ($args[1] === 'f1.jpg') {
-        $image = 'f1';
-    } else {
-        $image = 'f2';
-    }
-    if ($usercontext = context_user::instance($userid, IGNORE_MISSING)) {
-        $url = moodle_url::make_pluginfile_url($usercontext->id, 'user', 'icon', null, '/', $image);
-        redirect($url);
-    }
-}
-
-redirect($OUTPUT->image_url('u/f1'));
+$data = get_formatted_help_string($identifier, $component, true);
+echo json_encode($data);

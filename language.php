@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Allows you to edit a users editor preferences
+ * Allows you to edit a users profile
  *
  * @copyright 1999 Martin Dougiamas  http://dougiamas.com
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -24,52 +24,60 @@
 
 require_once('../config.php');
 require_once($CFG->libdir.'/gdlib.php');
-require_once($CFG->dirroot.'/user/editor_form.php');
+require_once($CFG->dirroot.'/user/language_form.php');
 require_once($CFG->dirroot.'/user/editlib.php');
 require_once($CFG->dirroot.'/user/lib.php');
 
 $userid = optional_param('id', $USER->id, PARAM_INT);    // User id.
 $courseid = optional_param('course', SITEID, PARAM_INT);   // Course id (defaults to Site).
 
-$PAGE->set_url('/user/editor.php', array('id' => $userid, 'course' => $courseid));
+$PAGE->set_url('/user/language.php', array('id' => $userid, 'course' => $courseid));
 
 list($user, $course) = useredit_setup_preference_page($userid, $courseid);
 
 // Create form.
-$editorform = new user_edit_editor_form();
-
-$user->preference_htmleditor = get_user_preferences( 'htmleditor', '', $user->id);
-$editorform->set_data($user);
+$languageform = new user_edit_language_form(null, array('userid' => $user->id));
+$languageform->set_data($user);
 
 $redirect = new moodle_url("/user/preferences.php", array('userid' => $user->id));
-if ($editorform->is_cancelled()) {
+if ($languageform->is_cancelled()) {
     redirect($redirect);
-} else if ($data = $editorform->get_data()) {
+} else if ($data = $languageform->get_data()) {
+    $lang = $data->lang;
+    // If the specified language does not exist, use the site default.
+    if (!get_string_manager()->translation_exists($lang, false)) {
+        $lang = core_user::get_property_default('lang');
+    }
 
-    $user->preference_htmleditor = $data->preference_htmleditor;
+    $user->lang = $lang;
+    // Update user with new language.
+    user_update_user($user, false, false);
 
-    useredit_update_user_preference($user);
     // Trigger event.
     \core\event\user_updated::create_from_userid($user->id)->trigger();
+
+    if ($USER->id == $user->id) {
+        $USER->lang = $lang;
+    }
 
     redirect($redirect, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
 }
 
 // Display page header.
-$streditmyeditor = get_string('editorpreferences');
+$streditmylanguage = get_string('preferredlanguage');
 $userfullname     = fullname($user, true);
 
 $PAGE->navbar->includesettingsbase = true;
 
-$PAGE->add_body_class('limitedwidth');
-$PAGE->set_title("$course->shortname: $streditmyeditor");
+$PAGE->set_title("$course->shortname: $streditmylanguage");
 $PAGE->set_heading($userfullname);
 
 echo $OUTPUT->header();
-echo $OUTPUT->heading($streditmyeditor);
+echo $OUTPUT->heading($streditmylanguage);
 
 // Finally display THE form.
-$editorform->display();
+$languageform->display();
 
 // And proper footer.
 echo $OUTPUT->footer();
+

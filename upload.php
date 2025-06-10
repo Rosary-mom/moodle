@@ -14,81 +14,171 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+
 /**
- * A form for cohort upload.
+ * Accept uploading files by web service token to the user draft file area.
  *
- * @package    core_cohort
- * @copyright  2014 Marina Glancy
+ * POST params:
+ *  token => the web service user token (needed for authentication)
+ *  filepath => file path (where files will be stored)
+ *  [_FILES] => for example you can send the files with <input type=file>,
+ *              or with curl magic: 'file_1' => '@/path/to/file', or ...
+ *  itemid   => The draftid - this can be used to add a list of files
+ *              to a draft area in separate requests. If it is 0, a new draftid will be generated.
+ *
+ * @package    core_webservice
+ * @copyright  2011 Dongsheng Cai <dongsheng@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once($CFG->dirroot.'/cohort/lib.php');
-require_once($CFG->dirroot.'/cohort/upload_form.php');
-require_once($CFG->libdir . '/csvlib.class.php');
+/**
+ * AJAX_SCRIPT - exception will be converted into JSON
+ */
+define('AJAX_SCRIPT', true);
 
-$contextid = optional_param('contextid', 0, PARAM_INT);
+/**
+ * NO_MOODLE_COOKIES - we don't want any cookie
+ */
+define('NO_MOODLE_COOKIES', true);
 
-require_login();
+require_once(__DIR__ . '/../config.php');
+require_once($CFG->dirroot . '/webservice/lib.php');
 
-if ($contextid) {
-    $context = context::instance_by_id($contextid, MUST_EXIST);
-} else {
-    $context = context_system::instance();
-}
-if ($context->contextlevel != CONTEXT_COURSECAT && $context->contextlevel != CONTEXT_SYSTEM) {
-    throw new \moodle_exception('invalidcontext');
-}
+// Allow CORS requests.
+header('Access-Control-Allow-Origin: *');
 
-require_capability('moodle/cohort:manage', $context);
-
-$PAGE->set_context($context);
-$baseurl = new moodle_url('/cohort/upload.php', array('contextid' => $context->id));
-$PAGE->set_url($baseurl);
-$PAGE->set_pagelayout('admin');
-
-if ($context->contextlevel == CONTEXT_COURSECAT) {
-    core_course_category::page_setup();
-    // Set the cohorts node active in the settings navigation block.
-    if ($cohortsnode = $PAGE->settingsnav->find('cohort', navigation_node::TYPE_SETTING)) {
-        $cohortsnode->make_active();
-    }
-
-    $PAGE->set_secondary_active_tab('cohort');
-} else {
-    navigation_node::override_active_url(new moodle_url('/cohort/index.php', array()));
-    $PAGE->set_heading($COURSE->fullname);
-}
-
-$uploadform = new cohort_upload_form(null, array('contextid' => $context->id));
-
-$returnurl = new moodle_url('/cohort/index.php', array('contextid' => $context->id));
-
-if ($uploadform->is_cancelled()) {
-    redirect($returnurl);
-}
-
-$strheading = get_string('uploadcohorts', 'cohort');
-$PAGE->set_title($strheading);
-$PAGE->navbar->add($strheading);
+$filepath = optional_param('filepath', '/', PARAM_PATH);
+$itemid = optional_param('itemid', 0, PARAM_INT);
 
 echo $OUTPUT->header();
-echo $OUTPUT->heading_with_help($strheading, 'uploadcohorts', 'cohort');
 
-if ($editcontrols = cohort_edit_controls($context, $baseurl)) {
-    echo $OUTPUT->render($editcontrols);
+// Authenticate the user.
+$token = required_param('token', PARAM_ALPHANUM);
+$webservicelib = new webservice();
+$authenticationinfo = $webservicelib->authenticate_user($token);
+$fileuploaddisabled = empty($authenticationinfo['service']->uploadfiles);
+if ($fileuploaddisabled) {
+    throw new webservice_access_exception('Web service file upload must be enabled in external service settings');
 }
 
-if ($data = $uploadform->get_data()) {
-    $cohortsdata = $uploadform->get_cohorts_data();
-    foreach ($cohortsdata as $cohort) {
-        cohort_add_cohort($cohort);
+$context = context_user::instance($USER->id);
+
+$fs = get_file_storage();
+
+$totalsize = 0;
+$files = array();
+foreach ($_FILES as $fieldname => $uploadedfile) {
+    // Check upload errors.
+    if (!empty($_FILES[$fieldname]['error'])) {
+        switch ($_FILES[$fieldname]['error']) {
+            case UPLOAD_ERR_INI_SIZE:
+                throw new moodle_exception('upload_error_ini_size', 'repository_upload');
+                break;
+            case UPLOAD_ERR_FORM_SIZE:
+                throw new moodle_exception('upload_error_form_size', 'repository_upload');
+                break;
+            case UPLOAD_ERR_PARTIAL:
+                throw new moodle_exception('upload_error_partial', 'repository_upload');
+                break;
+            case UPLOAD_ERR_NO_FILE:
+                throw new moodle_exception('upload_error_no_file', 'repository_upload');
+                break;
+            case UPLOAD_ERR_NO_TMP_DIR:
+                throw new moodle_exception('upload_error_no_tmp_dir', 'repository_upload');
+                break;
+            case UPLOAD_ERR_CANT_WRITE:
+                throw new moodle_exception('upload_error_cant_write', 'repository_upload');
+                break;
+            case UPLOAD_ERR_EXTENSION:
+                throw new moodle_exception('upload_error_extension', 'repository_upload');
+                break;
+            default:
+                throw new moodle_exception('nofile');
+        }
     }
-    echo $OUTPUT->notification(get_string('uploadedcohorts', 'cohort', count($cohortsdata)), 'notifysuccess');
-    echo $OUTPUT->continue_button($returnurl);
-} else {
-    $uploadform->display();
+
+    // Scan for viruses.
+    $avscanstarttime = microtime(true);
+    \core\antivirus\manager::scan_file($_FILES[$fieldname]['tmp_name'], $_FILES[$fieldname]['name'], true);
+
+    $file = new stdClass();
+    $file->avscantime = microtime(true) - $avscanstarttime;
+    $file->filename = clean_param($_FILES[$fieldname]['name'], PARAM_FILE);
+    // Check system maxbytes setting.
+    if (($_FILES[$fieldname]['size'] > get_max_upload_file_size($CFG->maxbytes))) {
+        // Oversize file will be ignored, error added to array to notify
+        // web service client.
+        $file->errortype = 'fileoversized';
+        $file->error = get_string('maxbytes', 'error');
+    } else {
+        $file->filepath = $_FILES[$fieldname]['tmp_name'];
+        // Calculate total size of upload.
+        $totalsize += $_FILES[$fieldname]['size'];
+        // Size of individual file.
+        $file->size = $_FILES[$fieldname]['size'];
+    }
+    $files[] = $file;
 }
 
-echo $OUTPUT->footer();
+$fs = get_file_storage();
 
+if ($itemid <= 0) {
+    $itemid = file_get_unused_draft_itemid();
+}
+
+// Get any existing file size limits.
+$maxupload = get_user_max_upload_file_size($context, $CFG->maxbytes);
+
+// Check the size of this upload.
+if ($maxupload !== USER_CAN_IGNORE_FILE_SIZE_LIMITS && $totalsize > $maxupload) {
+    throw new file_exception('userquotalimit');
+}
+
+$results = array();
+foreach ($files as $file) {
+    if (!empty($file->error)) {
+        // Including error and filename.
+        $results[] = $file;
+        continue;
+    }
+    $filerecord = new stdClass;
+    $filerecord->component = 'user';
+    $filerecord->contextid = $context->id;
+    $filerecord->userid = $USER->id;
+    $filerecord->filearea = 'draft';
+    $filerecord->filename = $file->filename;
+    $filerecord->filepath = $filepath;
+    $filerecord->itemid = $itemid;
+    $filerecord->license = $CFG->sitedefaultlicense;
+    $filerecord->author = fullname($authenticationinfo['user']);
+    $filerecord->source = serialize((object)array('source' => $file->filename));
+    $filerecord->filesize = $file->size;
+
+    // Check if the file already exist.
+    $existingfile = $fs->file_exists($filerecord->contextid, $filerecord->component, $filerecord->filearea,
+                $filerecord->itemid, $filerecord->filepath, $filerecord->filename);
+    if ($existingfile) {
+        $file->errortype = 'filenameexist';
+        $file->error = get_string('filenameexist', 'webservice', $file->filename);
+        $results[] = $file;
+    } else {
+        $storedfile = $fs->create_file_from_pathname($filerecord, $file->filepath);
+        $results[] = $filerecord;
+
+        // Log the event when a file is uploaded to the draft area.
+        $logevent = \core\event\draft_file_added::create([
+                'objectid' => $storedfile->get_id(),
+                'context' => $context,
+                'other' => [
+                        'itemid' => $filerecord->itemid,
+                        'filename' => $filerecord->filename,
+                        'filesize' => $filerecord->filesize,
+                        'filepath' => $filerecord->filepath,
+                        'contenthash' => $storedfile->get_contenthash(),
+                        'avscantime' => $file->avscantime,
+                ],
+        ]);
+        $logevent->trigger();
+    }
+}
+echo json_encode($results);

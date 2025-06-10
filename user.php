@@ -1,190 +1,217 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-    require_once('../config.php');
-    require_once($CFG->libdir.'/adminlib.php');
-    require_once($CFG->libdir.'/authlib.php');
-    require_once($CFG->dirroot.'/user/lib.php');
-    require_once($CFG->dirroot.'/'.$CFG->admin.'/user/user_bulk_forms.php');
+/**
+ * Display user activity reports for a course
+ *
+ * @copyright 1999 Martin Dougiamas  http://dougiamas.com
+ * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package course
+ */
 
-    $delete       = optional_param('delete', 0, PARAM_INT);
-    $confirm      = optional_param('confirm', '', PARAM_ALPHANUM);   //md5 confirmation hash
-    $confirmuser  = optional_param('confirmuser', 0, PARAM_INT);
-    $acl          = optional_param('acl', '0', PARAM_INT);           // id of user to tweak mnet ACL (requires $access)
-    $suspend      = optional_param('suspend', 0, PARAM_INT);
-    $unsuspend    = optional_param('unsuspend', 0, PARAM_INT);
-    $unlock       = optional_param('unlock', 0, PARAM_INT);
-    $resendemail  = optional_param('resendemail', 0, PARAM_INT);
+require_once("../config.php");
+require_once("lib.php");
 
-    admin_externalpage_setup('editusers');
+$id      = required_param('id',PARAM_INT);       // course id
+$user    = required_param('user',PARAM_INT);     // user id
+$mode    = optional_param('mode', "todaylogs", PARAM_ALPHA);
 
-    $sitecontext = context_system::instance();
-    $site = get_site();
+$url = new moodle_url('/course/user.php', array('id'=>$id,'user'=>$user, 'mode'=>$mode));
 
-    $returnurl = new moodle_url('/admin/user.php');
+$course = $DB->get_record('course', array('id'=>$id), '*', MUST_EXIST);
+$user = $DB->get_record("user", array("id"=>$user, 'deleted'=>0), '*', MUST_EXIST);
 
-    $PAGE->set_primary_active_tab('siteadminnode');
-    $PAGE->navbar->add(get_string('userlist', 'admin'), $PAGE->url);
+if ($mode === 'outline' or $mode === 'complete') {
+    $url = new moodle_url('/report/outline/user.php', array('id'=>$user->id, 'course'=>$course->id, 'mode'=>$mode));
+    redirect($url);
+}
+if ($mode === 'todaylogs' or $mode === 'alllogs') {
+    $logmode = ($mode === 'todaylogs') ? 'today' : 'all';
+    $url = new moodle_url('/report/log/user.php', array('id'=>$user->id, 'course'=>$course->id, 'mode'=>$logmode));
+    redirect($url);
+}
+if ($mode === 'stats') {
+    $url = new moodle_url('/report/stats/user.php', array('id'=>$user->id, 'course'=>$course->id));
+    redirect($url);
+}
+if ($mode === 'coursecompletions' or $mode === 'coursecompletion') {
+    $url = new moodle_url('/report/completion/user.php', array('id'=>$user->id, 'course'=>$course->id));
+    redirect($url);
+}
 
-    // The $user variable is also used outside of these if statements.
-    $user = null;
-    if ($confirmuser and confirm_sesskey()) {
-        require_capability('moodle/user:update', $sitecontext);
-        if (!$user = $DB->get_record('user', array('id'=>$confirmuser, 'mnethostid'=>$CFG->mnet_localhost_id))) {
-            throw new \moodle_exception('nousers');
-        }
+$coursecontext   = context_course::instance($course->id);
+$personalcontext = context_user::instance($user->id);
 
-        $auth = get_auth_plugin($user->auth);
+if ($id == SITEID) {
+    $PAGE->set_context($personalcontext);
+    $PAGE->set_heading(fullname($user));
+} else {
+    $PAGE->set_context($coursecontext);
+    $PAGE->set_secondary_active_tab('participants');
+    $PAGE->set_heading($course->fullname);
+}
 
-        $result = $auth->user_confirm($user->username, $user->secret);
+$PAGE->set_url('/course/user.php', array('id'=>$id, 'user'=>$user->id, 'mode'=>$mode));
 
-        if ($result == AUTH_CONFIRM_OK or $result == AUTH_CONFIRM_ALREADY) {
-            redirect($returnurl);
-        } else {
-            echo $OUTPUT->header();
-            redirect($returnurl, get_string('usernotconfirmed', '', fullname($user, true)));
-        }
+require_login();
+$PAGE->set_pagelayout('report');
+if (has_capability('moodle/user:viewuseractivitiesreport', $personalcontext) and !is_enrolled($coursecontext)) {
+    // do not require parents to be enrolled in courses ;-)
+    $PAGE->set_course($course);
+} else {
+    require_login($course);
+}
 
-    } else if ($resendemail && confirm_sesskey()) {
-        if (!$user = $DB->get_record('user', ['id' => $resendemail, 'mnethostid' => $CFG->mnet_localhost_id, 'deleted' => 0])) {
-            throw new \moodle_exception('nousers');
-        }
-
-        // Prevent spamming users who are already confirmed.
-        if ($user->confirmed) {
-            throw new \moodle_exception('alreadyconfirmed', 'moodle');
-        }
-
-        $returnmsg = get_string('emailconfirmsentsuccess');
-        $messagetype = \core\output\notification::NOTIFY_SUCCESS;
-        if (!send_confirmation_email($user)) {
-            $returnmsg = get_string('emailconfirmsentfailure');
-            $messagetype = \core\output\notification::NOTIFY_ERROR;
-        }
-
-        redirect($returnurl, $returnmsg, null, $messagetype);
-    } else if ($delete and confirm_sesskey()) {              // Delete a selected user, after confirmation
-        require_capability('moodle/user:delete', $sitecontext);
-
-        $user = $DB->get_record('user', array('id'=>$delete, 'mnethostid'=>$CFG->mnet_localhost_id), '*', MUST_EXIST);
-
-        if ($user->deleted) {
-            throw new \moodle_exception('usernotdeleteddeleted', 'error');
-        }
-        if (is_siteadmin($user->id)) {
-            throw new \moodle_exception('useradminodelete', 'error');
-        }
-
-        if ($confirm != md5($delete)) {
-            echo $OUTPUT->header();
-            $fullname = fullname($user, true);
-            echo $OUTPUT->heading(get_string('deleteuser', 'admin'));
-
-            $optionsyes = array('delete'=>$delete, 'confirm'=>md5($delete), 'sesskey'=>sesskey());
-            $deleteurl = new moodle_url($returnurl, $optionsyes);
-            $deletebutton = new single_button($deleteurl, get_string('delete'), 'post');
-
-            echo $OUTPUT->confirm(get_string('deletecheckfull', '', "'$fullname'"), $deletebutton, $returnurl);
-            echo $OUTPUT->footer();
-            die;
-        } else {
-            if (delete_user($user)) {
-                \core\session\manager::gc(); // Remove stale sessions.
-                redirect($returnurl, get_string('deleteduserx', 'admin', fullname($user, true)));
-            } else {
-                \core\session\manager::gc(); // Remove stale sessions.
-                echo $OUTPUT->header();
-                echo $OUTPUT->notification($returnurl, get_string('deletednot', '', fullname($user, true)));
-            }
-        }
-    } else if ($acl and confirm_sesskey()) {
-        if (!has_capability('moodle/user:update', $sitecontext)) {
-            throw new \moodle_exception('nopermissions', 'error', '', 'modify the NMET access control list');
-        }
-        if (!$user = $DB->get_record('user', array('id'=>$acl))) {
-            throw new \moodle_exception('nousers', 'error');
-        }
-        if (!is_mnet_remote_user($user)) {
-            throw new \moodle_exception('usermustbemnet', 'error');
-        }
-        $accessctrl = strtolower(required_param('accessctrl', PARAM_ALPHA));
-        if ($accessctrl != 'allow' and $accessctrl != 'deny') {
-            throw new \moodle_exception('invalidaccessparameter', 'error');
-        }
-        $aclrecord = $DB->get_record('mnet_sso_access_control', array('username'=>$user->username, 'mnet_host_id'=>$user->mnethostid));
-        if (empty($aclrecord)) {
-            $aclrecord = new stdClass();
-            $aclrecord->mnet_host_id = $user->mnethostid;
-            $aclrecord->username = $user->username;
-            $aclrecord->accessctrl = $accessctrl;
-            $DB->insert_record('mnet_sso_access_control', $aclrecord);
-        } else {
-            $aclrecord->accessctrl = $accessctrl;
-            $DB->update_record('mnet_sso_access_control', $aclrecord);
-        }
-        $mnethosts = $DB->get_records('mnet_host', null, 'id', 'id,wwwroot,name');
-        redirect($returnurl);
-
-    } else if ($suspend and confirm_sesskey()) {
-        require_capability('moodle/user:update', $sitecontext);
-
-        if ($user = $DB->get_record('user', array('id'=>$suspend, 'mnethostid'=>$CFG->mnet_localhost_id, 'deleted'=>0))) {
-            if (!is_siteadmin($user) and $USER->id != $user->id and $user->suspended != 1) {
-                $user->suspended = 1;
-                // Force logout.
-                \core\session\manager::destroy_user_sessions($user->id);
-                user_update_user($user, false);
-            }
-        }
-        redirect($returnurl);
-
-    } else if ($unsuspend and confirm_sesskey()) {
-        require_capability('moodle/user:update', $sitecontext);
-
-        if ($user = $DB->get_record('user', array('id'=>$unsuspend, 'mnethostid'=>$CFG->mnet_localhost_id, 'deleted'=>0))) {
-            if ($user->suspended != 0) {
-                $user->suspended = 0;
-                user_update_user($user, false);
-            }
-        }
-        redirect($returnurl);
-
-    } else if ($unlock and confirm_sesskey()) {
-        require_capability('moodle/user:update', $sitecontext);
-
-        if ($user = $DB->get_record('user', array('id'=>$unlock, 'mnethostid'=>$CFG->mnet_localhost_id, 'deleted'=>0))) {
-            login_unlock_account($user);
-        }
-        redirect($returnurl);
-    }
-
+if ($user->deleted) {
     echo $OUTPUT->header();
-
-    echo html_writer::start_div('', ['data-region' => 'report-user-list-wrapper']);
-
-    $bulkactions = new user_bulk_action_form(new moodle_url('/admin/user/user_bulk.php'),
-        ['excludeactions' => ['displayonpage', 'download'], 'passuserids' => true, 'hidesubmit' => true],
-        'post', '',
-        ['id' => 'user-bulk-action-form']);
-    $bulkactions->set_data(['returnurl' => $PAGE->url->out_as_local_url(false)]);
-
-    $report = \core_reportbuilder\system_report_factory::create(\core_admin\reportbuilder\local\systemreports\users::class,
-        context_system::instance(), parameters: ['withcheckboxes' => $bulkactions->has_bulk_actions()]);
-    if (has_capability('moodle/user:create', $sitecontext)) {
-        $url = new moodle_url('/user/editadvanced.php', ['id' => -1]);
-        $report->set_report_action(new \core_reportbuilder\output\report_action(
-            get_string('addnewuser', 'moodle'),
-            ['class' => 'btn btn-primary ms-auto', 'data-action' => 'add-user', 'href' => (string) $url],
-            'a',
-        ));
-    }
-
-    echo $report->output();
-
-    if ($bulkactions->has_bulk_actions()) {
-        $PAGE->requires->js_call_amd('core_admin/bulk_user_actions', 'init');
-        $bulkactions->display();
-    }
-
-    echo html_writer::end_div();
-
+    echo $OUTPUT->heading(get_string('userdeleted'));
     echo $OUTPUT->footer();
+    die;
+}
+
+// prepare list of allowed modes
+$myreports  = ($course->showreports and $USER->id == $user->id);
+$anyreport  = has_capability('moodle/user:viewuseractivitiesreport', $personalcontext);
+
+$modes = array();
+
+// Used for grade reports, it represents whether we should be viewing the report as ourselves, or as the targetted user.
+$viewasuser = false;
+
+if (has_capability('moodle/grade:viewall', $coursecontext)) {
+    //ok - can view all course grades
+    $modes[] = 'grade';
+
+} else if ($course->showgrades and $user->id == $USER->id and has_capability('moodle/grade:view', $coursecontext)) {
+    //ok - can view own grades
+    $modes[] = 'grade';
+
+} else if ($course->showgrades and has_capability('moodle/grade:viewall', $personalcontext)) {
+    // ok - can view grades of this user - parent most probably
+    $modes[] = 'grade';
+    $viewasuser = true;
+
+} else if ($course->showgrades and $anyreport) {
+    // ok - can view grades of this user - parent most probably
+    $modes[] = 'grade';
+    $viewasuser = true;
+}
+
+if (empty($modes)) {
+    require_capability('moodle/user:viewuseractivitiesreport', $personalcontext);
+}
+
+if (!in_array($mode, $modes)) {
+    // forbidden or non-existent mode
+    $mode = reset($modes);
+}
+
+$eventdata = array(
+    'context' => $coursecontext,
+    'relateduserid' => $user->id,
+    'other' => array('mode' => $mode),
+);
+$event = \core\event\course_user_report_viewed::create($eventdata);
+$event->trigger();
+
+$stractivityreport = get_string("activityreport");
+
+$PAGE->navigation->extend_for_user($user);
+$PAGE->navigation->set_userid_for_parent_checks($user->id); // see MDL-25805 for reasons and for full commit reference for reversal when fixed.
+$PAGE->set_title("$course->shortname: $stractivityreport ($mode)");
+
+switch ($mode) {
+    case "grade":
+        // Change the navigation to point to the my grade node (If we are a student).
+        if ($USER->id == $user->id) {
+            require_once($CFG->dirroot . '/user/lib.php');
+            // Get the correct 'Grades' url to point to.
+            $activeurl = user_mygrades_url();
+            $navbar = $PAGE->navbar->add(get_string('grades', 'grades'), $activeurl, navigation_node::TYPE_SETTING, null, 'grades');
+            $activenode = $navbar->add($course->shortname);
+            $activenode->make_active();
+            // Find the course node and collapse it.
+            $coursenode = $PAGE->navigation->find($course->id, navigation_node::TYPE_COURSE);
+            $coursenode->collapse = true;
+            $coursenode->make_inactive();
+
+            if (!preg_match('/^user\d{0,}$/', $activenode->key ?? '')) { // No user name found.
+                $userurl = new moodle_url('/user/view.php', array('id' => $user->id, 'course' => $course->id));
+                // Add the user name.
+                $usernode = $activenode->add(fullname($user), $userurl, navigation_node::TYPE_SETTING);
+                $usernode->add(get_string('grades'));
+            } else {
+                $url = new moodle_url('/course/user.php', array('id' => $id, 'user' => $user->id, 'mode' => $mode));
+                $reportnode = $activenode->add(get_string('pluginname', 'gradereport_user'), $url);
+            }
+        } else {
+            if ($course->id == SITEID) {
+                $activenode = $PAGE->navigation->find('user' . $user->id, null);
+            } else {
+                $currentcoursenode = $PAGE->navigation->find($course->id, navigation_node::TYPE_COURSE);
+                $activenode = $currentcoursenode->find_active_node();
+            }
+
+            // Check to see if the active node is a user name.
+            if (!preg_match('/^user\d{0,}$/', $activenode->key)) { // No user name found.
+                $userurl = new moodle_url('/user/view.php', array('id' => $user->id, 'course' => $course->id));
+                // Add the user name.
+                $PAGE->navbar->add(fullname($user), $userurl, navigation_node::TYPE_SETTING);
+            }
+            $PAGE->navbar->add(get_string('report'));
+            $gradeurl = new moodle_url('/course/user.php', array('id' => $id, 'user' => $user->id, 'mode' => $mode));
+            // Add the 'grades' node to the navbar.
+            $navbar = $PAGE->navbar->add(get_string('grades', 'grades'), $gradeurl, navigation_node::TYPE_SETTING);
+        }
+
+        echo $OUTPUT->header();
+
+        if ($course->id !== SITEID) {
+            $userheading = array(
+                'heading' => fullname($user, has_capability('moodle/site:viewfullnames', $PAGE->context)),
+                'user' => $user,
+                'usercontext' => $personalcontext,
+            );
+            echo $OUTPUT->context_header($userheading, 2);
+
+            echo $OUTPUT->heading(get_string('grades', 'moodle'), 2, 'main mt-4 mb-4');
+        }
+
+        if (empty($CFG->grade_profilereport) or !file_exists($CFG->dirroot.'/grade/report/'.$CFG->grade_profilereport.'/lib.php')) {
+            $CFG->grade_profilereport = 'user';
+        }
+        require_once $CFG->libdir.'/gradelib.php';
+        require_once $CFG->dirroot.'/grade/lib.php';
+        require_once $CFG->dirroot.'/grade/report/'.$CFG->grade_profilereport.'/lib.php';
+
+        // User must be able to view this grade report.
+        if (!$viewasuser) {
+            require_capability('gradereport/' . $CFG->grade_profilereport . ':view', $coursecontext);
+        }
+
+        $functionname = 'grade_report_'.$CFG->grade_profilereport.'_profilereport';
+        if (function_exists($functionname)) {
+            $functionname($course, $user, $viewasuser);
+        }
+        break;
+
+    default:
+        // It's unlikely to reach this piece of code, as the mode is never empty and it sets mode as grade in most of the cases.
+        // Display the page header to avoid breaking the navigation. A course/user.php review will be done in MDL-49939.
+        echo $OUTPUT->header();
+}
+
+echo $OUTPUT->footer();

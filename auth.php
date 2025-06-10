@@ -1,92 +1,149 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Allows admin to edit all auth plugin settings.
+ * Web service auth plugin, reserves username, prevents normal login.
+ * TODO: add IP restrictions and some other features - MDL-17135
  *
- * JH: copied and Hax0rd from admin/enrol.php and admin/filters.php
- *
+ * @package    auth_webservice
+ * @copyright  2008 Petr Skoda (http://skodak.org)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once($CFG->libdir.'/adminlib.php');
-require_once($CFG->libdir.'/tablelib.php');
+defined('MOODLE_INTERNAL') || die();
 
-require_admin();
+require_once($CFG->libdir.'/authlib.php');
 
-$returnurl = new moodle_url('/admin/settings.php', array('section'=>'manageauths'));
+/**
+ * Web service auth plugin.
+ */
+class auth_plugin_webservice extends auth_plugin_base {
 
-$PAGE->set_url($returnurl);
+    /**
+     * Constructor.
+     */
+    public function __construct() {
+        $this->authtype = 'webservice';
+        $this->config = get_config('auth_webservice');
+    }
 
-$action = optional_param('action', '', PARAM_ALPHANUMEXT);
-$auth   = optional_param('auth', '', PARAM_PLUGIN);
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function auth_plugin_webservice() {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct();
+    }
 
-get_enabled_auth_plugins(true); // fix the list of enabled auths
-if (empty($CFG->auth)) {
-    $authsenabled = array();
-} else {
-    $authsenabled = explode(',', $CFG->auth);
-}
+    /**
+     * Returns true if the username and password work and false if they are
+     * wrong or don't exist.
+     *
+     * @param string $username The username (with system magic quotes)
+     * @param string $password The password (with system magic quotes)
+     *
+     * @return bool Authentication success or failure.
+     */
+    function user_login($username, $password) {
+        // normla logins not allowed!
+        return false;
+    }
 
-if (!empty($auth) and !exists_auth_plugin($auth)) {
-    throw new \moodle_exception('pluginnotinstalled', 'auth', $returnurl, $auth);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// process actions
-
-if (!confirm_sesskey()) {
-    redirect($returnurl);
-}
-
-switch ($action) {
-    case 'disable':
-        // Remove from enabled list.
-        $class = \core_plugin_manager::resolve_plugininfo_class('auth');
-        $class::enable_plugin($auth, false);
-        break;
-
-    case 'enable':
-        // Add to enabled list.
-        $class = \core_plugin_manager::resolve_plugininfo_class('auth');
-        $class::enable_plugin($auth, true);
-        break;
-
-    case 'down':
-        $key = array_search($auth, $authsenabled);
-        // check auth plugin is valid
-        if ($key === false) {
-            throw new \moodle_exception('pluginnotenabled', 'auth', $returnurl, $auth);
+    /**
+     * Custom auth hook for web services.
+     * @param string $username
+     * @param string $password
+     * @return bool success
+     */
+    function user_login_webservice($username, $password) {
+        global $CFG, $DB;
+        // special web service login
+        if ($user = $DB->get_record('user', array('username'=>$username, 'mnethostid'=>$CFG->mnet_localhost_id))) {
+            return validate_internal_user_password($user, $password);
         }
-        // move down the list
-        if ($key < (count($authsenabled) - 1)) {
-            $fsave = $authsenabled[$key];
-            $authsenabled[$key] = $authsenabled[$key + 1];
-            $authsenabled[$key + 1] = $fsave;
-            $value = implode(',', $authsenabled);
-            add_to_config_log('auth', $CFG->auth, $value, 'core');
-            set_config('auth', $value);
-        }
-        break;
+        return false;
+    }
 
-    case 'up':
-        $key = array_search($auth, $authsenabled);
-        // check auth is valid
-        if ($key === false) {
-            throw new \moodle_exception('pluginnotenabled', 'auth', $returnurl, $auth);
-        }
-        // move up the list
-        if ($key >= 1) {
-            $fsave = $authsenabled[$key];
-            $authsenabled[$key] = $authsenabled[$key - 1];
-            $authsenabled[$key - 1] = $fsave;
-            $value = implode(',', $authsenabled);
-            add_to_config_log('auth', $CFG->auth, $value, 'core');
-            set_config('auth', $value);
-        }
-        break;
+    /**
+     * Updates the user's password.
+     *
+     * called when the user password is updated.
+     *
+     * @param  object  $user        User table object  (with system magic quotes)
+     * @param  string  $newpassword Plaintext password (with system magic quotes)
+     * @return boolean result
+     *
+     */
+    function user_update_password($user, $newpassword) {
+        $user = get_complete_user_data('id', $user->id);
+        // This will also update the stored hash to the latest algorithm
+        // if the existing hash is using an out-of-date algorithm (or the
+        // legacy md5 algorithm).
+        return update_internal_user_password($user, $newpassword);
+    }
 
-    default:
-        break;
+    /**
+     * Returns true if this authentication plugin is 'internal'.
+     *
+     * Webserice auth doesn't use password fields, it uses only tokens.
+     *
+     * @return bool
+     */
+    function is_internal() {
+        return false;
+    }
+
+    /**
+     * Returns true if this authentication plugin can change the user's
+     * password.
+     *
+     * @return bool
+     */
+    function can_change_password() {
+        return false;
+    }
+
+    /**
+     * Returns the URL for changing the user's pw, or empty if the default can
+     * be used.
+     *
+     * @return moodle_url
+     */
+    function change_password_url() {
+        return null;
+    }
+
+    /**
+     * Returns true if plugin allows resetting of internal password.
+     *
+     * @return bool
+     */
+    function can_reset_password() {
+        return false;
+    }
+
+   /**
+     * Confirm the new user as registered. This should normally not be used,
+     * but it may be necessary if the user auth_method is changed to manual
+     * before the user is confirmed.
+     */
+    function user_confirm($username, $confirmsecret = null) {
+        return AUTH_CONFIRM_ERROR;
+    }
+
 }
-
-redirect($returnurl);

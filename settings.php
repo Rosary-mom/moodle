@@ -1,174 +1,89 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-require_once('../config.php');
-require_once($CFG->libdir.'/adminlib.php');
+/**
+ * Admin settings and defaults.
+ *
+ * @package    auth_shibboleth
+ * @copyright  2017 Stephen Bourget
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
-$section = required_param('section', PARAM_SAFEDIR);
-$return = optional_param('return','', PARAM_ALPHA);
-$adminediting = optional_param('adminedit', -1, PARAM_BOOL);
+defined('MOODLE_INTERNAL') || die;
 
-/// no guest autologin
-require_login(0, false);
-$PAGE->set_context(context_system::instance());
-$PAGE->set_url('/admin/settings.php', array('section' => $section));
-$PAGE->set_pagetype('admin-setting-' . $section);
-$PAGE->set_pagelayout('admin');
-$PAGE->navigation->clear_cache();
-navigation_node::require_admin_tree();
+if ($ADMIN->fulltree) {
+    // We use a couple of custom admin settings since we need to massage the data before it is inserted into the DB.
+    require_once($CFG->dirroot.'/auth/shibboleth/classes/admin_setting_special_wayf_select.php');
+    require_once($CFG->dirroot.'/auth/shibboleth/classes/admin_setting_special_idp_configtextarea.php');
+    require_once($CFG->dirroot.'/auth/shibboleth/classes/admin_setting_special_convert_data_configfile.php');
 
-$adminroot = admin_get_root(); // need all settings
-$settingspage = $adminroot->locate($section, true);
+    // Introductory explanation.
+    $readmeurl = (new moodle_url('/auth/shibboleth/README.txt'))->out();
+    $settings->add(new admin_setting_heading('auth_shibboleth/pluginname', '',
+            new lang_string('auth_shibbolethdescription', 'auth_shibboleth', $readmeurl)));
 
-if (empty($settingspage) or !($settingspage instanceof admin_settingpage)) {
-    if (moodle_needs_upgrading()) {
-        redirect(new moodle_url('/admin/index.php'));
-    } else {
-        throw new \moodle_exception('sectionerror', 'admin', "$CFG->wwwroot/$CFG->admin/");
-    }
-    die;
+    // Username.
+    $settings->add(new admin_setting_configtext('auth_shibboleth/user_attribute', get_string('username'),
+            get_string('auth_shib_username_description', 'auth_shibboleth'), '', PARAM_RAW));
+
+    // Convert Data configuration file.
+    $settings->add(new auth_shibboleth_admin_setting_convert_data('auth_shibboleth/convert_data',
+            get_string('auth_shib_convert_data', 'auth_shibboleth'),
+            get_string('auth_shib_convert_data_description', 'auth_shibboleth', $readmeurl), ''));
+
+    // WAYF.
+    $settings->add(new auth_shibboleth_admin_setting_special_wayf_select());
+
+    // Organization_selection.
+    $settings->add(new auth_shibboleth_admin_setting_special_idp_configtextarea());
+
+    // Logout handler.
+    $settings->add(new admin_setting_configtext('auth_shibboleth/logout_handler',
+            get_string('auth_shib_logout_url', 'auth_shibboleth'),
+            get_string('auth_shib_logout_url_description', 'auth_shibboleth'), '', PARAM_URL));
+
+    // Logout return URL.
+    $settings->add(new admin_setting_configtext('auth_shibboleth/logout_return_url',
+            get_string('auth_shib_logout_return_url', 'auth_shibboleth'),
+            get_string('auth_shib_logout_return_url_description', 'auth_shibboleth'), '', PARAM_URL));
+
+    // Authentication method name.
+    $settings->add(new admin_setting_configtext('auth_shibboleth/login_name',
+            get_string('auth_shib_auth_method', 'auth_shibboleth'),
+            get_string('auth_shib_auth_method_description', 'auth_shibboleth'), 'Shibboleth Login', PARAM_TEXT));
+
+    // Authentication method logo.
+    $settings->add(new admin_setting_configstoredfile('auth_shibboleth/auth_logo',
+                get_string('auth_shib_auth_logo', 'auth_shibboleth'),
+                get_string('auth_shib_auth_logo_description', 'auth_shibboleth'), 'logo', 0, ['accepted_types' => ['image']]));
+
+    // Login directions.
+    $settings->add(new admin_setting_configtextarea('auth_shibboleth/auth_instructions',
+            get_string('auth_shib_instructions_key', 'auth_shibboleth'),
+            get_string('auth_shib_instructions_help', 'auth_shibboleth', $CFG->wwwroot.'/auth/shibboleth/index.php'),
+            get_string('auth_shib_instructions', 'auth_shibboleth', $CFG->wwwroot.'/auth/shibboleth/index.php'), PARAM_RAW_TRIMMED));
+
+    // Password change URL.
+    $settings->add(new admin_setting_configtext('auth_shibboleth/changepasswordurl',
+            get_string('auth_shib_changepasswordurl', 'auth_shibboleth'),
+            get_string('changepasswordhelp', 'auth'), '', PARAM_URL));
+
+    // Display locking / mapping of profile fields.
+    $authplugin = get_auth_plugin('shibboleth');
+    display_auth_lock_options($settings, $authplugin->authtype, $authplugin->userfields,
+            '', true, false, $authplugin->get_custom_user_profile_fields());
+
 }
-
-if (!($settingspage->check_access())) {
-    throw new \moodle_exception('accessdenied', 'admin');
-    die;
-}
-
-// If the context in the admin_settingpage object is explicitly defined and it is not system, reset the current
-// page context and use that one instead. This ensures that the proper navigation is displayed and highlighted.
-if ($settingspage->context && !$settingspage->context instanceof \context_system) {
-    $PAGE->set_context($settingspage->context);
-}
-
-$hassiteconfig = has_capability('moodle/site:config', context_system::instance());
-// Display the admin search input element in the page header if the user has the capability to change the site
-// configuration and the current page context is system.
-if ($hassiteconfig && $PAGE->context instanceof \context_system) {
-    $PAGE->add_header_action($OUTPUT->render_from_template('core_admin/header_search_input', [
-        'action' => new moodle_url('/admin/search.php'),
-    ]));
-}
-
-/// WRITING SUBMITTED DATA (IF ANY) -------------------------------------------------------------------------------
-
-$statusmsg = '';
-$errormsg  = '';
-
-// Form is submitted with changed settings. Do not want to execute when modifying a block.
-if ($data = data_submitted() and confirm_sesskey() and isset($data->action) and $data->action == 'save-settings') {
-
-    $count = admin_write_settings($data);
-    // Regardless of whether any setting change was written (a positive count), check validation errors for those that didn't.
-    if (empty($adminroot->errors)) {
-        // No errors. Did we change any setting? If so, then redirect with success.
-        if ($count) {
-            redirect($PAGE->url, get_string('changessaved'), null, \core\output\notification::NOTIFY_SUCCESS);
-        }
-        // We didn't change a setting.
-        switch ($return) {
-            case 'site': redirect("$CFG->wwwroot/");
-            case 'admin': redirect("$CFG->wwwroot/$CFG->admin/");
-        }
-        redirect($PAGE->url);
-    } else {
-        $errormsg = get_string('errorwithsettings', 'admin');
-        $firsterror = reset($adminroot->errors);
-    }
-    $settingspage = $adminroot->locate($section, true);
-}
-
-if ($PAGE->user_allowed_editing() && $adminediting != -1) {
-    $USER->editing = $adminediting;
-}
-
-/// print header stuff ------------------------------------------------------------
-if (empty($SITE->fullname)) {
-    $PAGE->set_title($settingspage->visiblename);
-    $PAGE->set_heading($settingspage->visiblename);
-
-    echo $OUTPUT->header();
-    echo $OUTPUT->box(get_string('configintrosite', 'admin'));
-
-    if ($errormsg !== '') {
-        echo $OUTPUT->notification($errormsg);
-
-    } else if ($statusmsg !== '') {
-        echo $OUTPUT->notification($statusmsg, 'notifysuccess');
-    }
-
-    // ---------------------------------------------------------------------------------------------------------------
-
-    $pageparams = $PAGE->url->params();
-    $context = [
-        'actionurl' => $PAGE->url->out(false),
-        'params' => array_map(function($param) use ($pageparams) {
-            return [
-                'name' => $param,
-                'value' => $pageparams[$param]
-            ];
-        }, array_keys($pageparams)),
-        'sesskey' => sesskey(),
-        'return' => $return,
-        'title' => null,
-        'settings' => $settingspage->output_html(),
-        'showsave' => true
-    ];
-
-    echo $OUTPUT->render_from_template('core_admin/settings', $context);
-
-} else {
-    if ($PAGE->user_allowed_editing() && !$PAGE->theme->haseditswitch) {
-        $url = clone($PAGE->url);
-        if ($PAGE->user_is_editing()) {
-            $caption = get_string('blockseditoff');
-            $url->param('adminedit', 'off');
-        } else {
-            $caption = get_string('blocksediton');
-            $url->param('adminedit', 'on');
-        }
-        $buttons = $OUTPUT->single_button($url, $caption, 'get');
-        $PAGE->set_button($buttons);
-    }
-
-    $PAGE->set_title(implode(moodle_page::TITLE_SEPARATOR, $settingspage->visiblepath));
-    $PAGE->set_heading($SITE->fullname);
-    echo $OUTPUT->header();
-
-    if ($errormsg !== '') {
-        echo $OUTPUT->notification($errormsg);
-
-    } else if ($statusmsg !== '') {
-        echo $OUTPUT->notification($statusmsg, 'notifysuccess');
-    }
-
-    // ---------------------------------------------------------------------------------------------------------------
-
-    $pageparams = $PAGE->url->params();
-    $context = [
-        'actionurl' => $PAGE->url->out(false),
-        'params' => array_map(function($param) use ($pageparams) {
-            return [
-                'name' => $param,
-                'value' => $pageparams[$param]
-            ];
-        }, array_keys($pageparams)),
-        'sesskey' => sesskey(),
-        'return' => $return,
-        'title' => $settingspage->visiblename,
-        'settings' => $settingspage->output_html(),
-        'showsave' => $settingspage->show_save()
-    ];
-
-    echo $OUTPUT->render_from_template('core_admin/settings', $context);
-}
-
-// Add the form change checker.
-$PAGE->requires->js_call_amd('core_form/changechecker', 'watchFormById', ['adminsettings']);
-
-if ($settingspage->has_dependencies()) {
-    $opts = [
-        'dependencies' => $settingspage->get_dependencies_for_javascript()
-    ];
-    $PAGE->requires->js_call_amd('core/showhidesettings', 'init', [$opts]);
-}
-
-echo $OUTPUT->footer();

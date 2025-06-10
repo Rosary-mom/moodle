@@ -3,87 +3,88 @@
 This file has been replaced by UPGRADING.md. See MDL-81125 for further information.
 
 ===
-This files describes API changes in /admin/*.
+This files describes API changes in /backup/*,
+information provided here is intended especially for developers.
 
 === 4.4 ===
 
-* Grade item setting "Advanced grade item options" (grade_item_advanced) is no longer used and has been removed.
-* Grade category settings no longer have the "Advanced" checkbox. The 'advanced' parameter has been removed.
+* New \core_backup\hook\before_course_modified_check hook which can be used to exclude events from automated backup has been implemented (See MDL-73926 and MDL-81044).
 
 === 4.3 ===
 
-* Removed admin setting cookiehttponly Moodle now defaults to HTTP only cookies for new installs only.
-  Existing sites will not be affected by this change. The setting can be changed in config.php if required.
-  To enable for upgraded sites set: $CFG->cookiehttponly = true;
-  To disable for new sites set: $CFG->cookiehttponly = false;
-
-  Existing cookies will not be affected by this change, until they are expired or deleted.
-
-* Theme setting "Enable device detection" (enabledevicedetection) and related to it has been removed.
-* Theme setting "Device detection regular expressions" (devicedetectregex) and related to it has been removed.
-* Class adminpresets_admin_setting_devicedetectregex has been deprecated.
-* The admin_setting_devicedetectregex class has been deprecated.
-
-=== 4.2 ===
-
-* A new admin setting coursecreationguide allows admins to configure the URL of the Quickstart guide for admins and managers.
+* The function get_async_backup_links_backup has a new param of $backupid and is part of a fix to
+  async backups (See MDL-69983).
+* During restore the function create_included_users has been updated to convert backups containing
+  legacy MD5 hashed passwords to the new password hashing scheme (See MDL-79134).
 
 === 4.1 ===
 
-* A new admin setting supportavailability allows admins to configure who the "contact site support" feature is available to
-  (everyone, authenticated users, or nobody).
-  -For new sites and those upgrading from 3.11.x or older, the default will be "Limited to authenticated users".
-  -For sites upgrading from 4.0.x, the default will be "available to anyone visiting the site", to main consistent behaviour through the upgrade.
+* The class core_backup\copy\copy in backup/util/ui/classes/copy.php has been deprecated, please use copy_helper
+  from backup/util/helper/copy_helper.class.php instead.
+* The method set_copy() in backup/controller/base_controller.class.php has been deprecated, please use a restore
+  controller for storing copy information instead.
+* The method get_copy() in backup/controller/base_controller.class.php has been deprecated, please use get_copy()
+  from backup/controller/restore_controller.class.php instead.
 
-=== 4.0.1 ===
+=== 4.0 ===
 
-* A new callback xxx_pre_enable_plugin_actions has been added in admin/modules.php. Plugins can use this callback to
-  force additional actions (e.g. displaying notifications, modals, etc.) before enabling the plugin. The expected
-  return value (bool) from the plugin callback method specifies whether the process of enabling the plugin should
-  continue after the added actions or not.
+* Backup UI labels now accept empty/whitespace-only contents.
 
 === 3.11 ===
 
-* New admin setting admin_setting_encryptedpassword allows passwords in admin settings to be
-  encrypted (with the new \core\encryption API) so that even the admin cannot read them.
-* Web services administration has been moved from Plugins into the Server category. If you have
-  Behat tests containing steps like `Given I navigate to "Plugins > Web services > ..."`, you will
-  want to replace them with `Given I navigate to "Server > Web services > ..."`.
+ * New setting called "Include permission overrides" has been implemented. The default
+   settings is OFF for import, and ON for restore.
 
-=== 3.9 ===
+=== 3.10 ===
 
-* The following functions, previously used (exclusively) by upgrade steps are not available anymore because of the upgrade cleanup performed for this version. See MDL-65809 for more info:
-    - upgrade_fix_block_instance_configuration()
-    - upgrade_theme_is_from_family()
-    - upgrade_find_theme_location()
-    - linkcoursesectionsupgradescriptwasrun setting
-    - upgrade_block_positions()
+ * Local plugins can now hook into a backup and restore process of grade items by
+   using define_grade_item_plugin_structure method (See MDL-69418).
 
-=== 3.8 ===
+=== 3.1 ===
 
-* Admin setting "Open to Google" (opentogoogle) has been renamed to the more generic "Open to search engines" (opentowebcrawlers).
-  This is a more accurate representation of what is being set and the config string has also been moved and updated to reflect this.
+* New close() method added to loggers so they can close any open resource. Previously
+  any backup and restore operation using the file logger may be leaving unclosed files.
+* New destroy() method added to loggers, normally called from backup and restore controllers
+  own destroy() method to ensure that all references in the chained loggers are deleted
+  and any open resource within them is closed properly.
 
-=== 3.7 ===
+=== 3.0 ===
 
-* Admin setting "Allow blocks to use the dock" (allowblockstodock) has been removed & stings deprecated.
-  Docking of blocks is no longer supported within the core themes (Boost, Classic).
-  Please see MDL-64506 for further details.
+* The backup_auto_keep setting, in automated backups configuration, is now
+  renamed to backup_auto_max_kept as part of a rationalise of naming (see MDL-50602)
 
-=== 3.3 ===
+=== 2.6 ===
 
-* The admin settings admin_setting_configselect and admin_setting_configmultiselect now support the optgroup tag.
-  Grouping of options can be created with this new tag.
-  For using it, the option parameters needs the Group names as indexes:
-  [
-    "Spain" =>  ["madrid" => "Madrid", "barcelona" => "Barcelona"],
-    "France" => ["paris" => "Paris", "marseille" => "Marseille"],
-  ]
+* The backup_controller_dbops::create_temptable_from_real_table()
+  method is not available anymore. Temp tables must be created
+  inline always.
 
-=== 3.2 ===
+* Using the info field from backup_ids_temp or backup_files_temp
+  must now go via backup_controller_dbops::decode_backup_temp_info() and
+  backup_controller_dbops::encode_backup_temp_info(). The implementation
+  of the encoding has changed.  These new functions encapsulate any future
+  changes to the encoding.
 
-* Admin settings have been refined to better support right-to-left languages. In RTL,
-  most fields should not have their direction flipped, a URL, a path to a file, ...
-  are always displayed LTR. The admin setting will now best guess if they should be
-  RTLized based on their PARAM_* type. To override that guess, use
-  admin_setting::set_force_ltr(true/false).
+=== 2.5 ===
+
+* New optional param $sortby in backup set_source_table() allows to
+    specify the ORDER BY clause to be used. Previously it was required
+    to use the set_source_sql() more complex alternative in places
+    requiring ordering.
+* The old 1.9 files backuplib.php, lib.php and restorelib.php and the bb directory,
+    (all under /backup) have been deleted and no code should rely on them anymore.
+
+=== 2.4 ===
+
+* Since 2.3.1+ the backup file name schema has changed. The ID of the course will always be part of
+    the filename regardless of the setting 'backup_shortname'. See MDL-33812.
+
+=== 2.3 ===
+
+* Since 2.3.1+ the backup file name schema has changed. The ID of the course will always be part of
+    the filename regardless of the setting 'backup_shortname'. See MDL-33812.
+
+=== 2.2 ===
+
+* Since 2.2.4+ the backup file name schema has changed. The ID of the course will always be part of
+    the filename regardless of the setting 'backup_shortname'. See MDL-33812.

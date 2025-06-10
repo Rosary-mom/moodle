@@ -1,17 +1,19 @@
-# moodle
-Moodle Lehrmittelintegration auf Rosary-mom
-name: Open new issue
-on: workflow_dispatch
+# Moodle JavaScript Documentation
 
-jobs:
-  open-issue:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - run: |
-          gh issue --repo ${{ github.repository }} \
-            create --title "Issue title" --body "Issue body"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+                                 .-..-.
+   _____                         | || |
+  /____/-.---_  .---.  .---.  .-.| || | .---.
+  | |  _   _  |/  _  \/  _  \/  _  || |/  __ \
+  * | | | | | || |_| || |_| || |_| || || |___/
+    |_| |_| |_|\_____/\_____/\_____||_|\_____)
+
+Moodle - the world's open source learning platform
+
+```
+
+## About
+This generated documentation includes API documentation for JavaScript written in the AMD and ES2015 module formats within Moodle.
+
+## Related information
+See [https://moodledev.io](https://moodledev.io) for other related Developer Documentation.

@@ -15,136 +15,189 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Displays IP address on map.
- *
- * This script is not compatible with IPv6.
- *
- * @package    core_iplookup
- * @copyright  2008 Petr Skoda (http://skodak.org)
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * file index.php
+ * index page to view notes.
+ * if a course id is specified then the entries from that course are shown
+ * if a user id is specified only notes related to that user are shown
  */
-
-require('../config.php');
+require_once('../config.php');
 require_once('lib.php');
+require_once($CFG->dirroot . '/course/lib.php');
 
-require_login(0, false);
-if (isguestuser()) {
-    // Guest users cannot perform lookups.
-    throw new require_login_exception('Guests are not allowed here.');
+$courseid     = optional_param('course', SITEID, PARAM_INT);
+$userid       = optional_param('user', 0, PARAM_INT);
+$filtertype   = optional_param('filtertype', '', PARAM_ALPHA);
+$filterselect = optional_param('filterselect', 0, PARAM_INT);
+
+if (empty($CFG->enablenotes)) {
+    throw new \moodle_exception('notesdisabled', 'notes');
 }
 
-$ip = optional_param('ip', getremoteaddr(), PARAM_RAW);
-$user = optional_param('user', 0, PARAM_INT);
-$width = optional_param('width', 0, PARAM_INT);
-$height = optional_param('height', 0, PARAM_INT);
-$ispopup = optional_param('popup', 0, PARAM_INT);
+$url = new moodle_url('/notes/index.php');
+if ($courseid != SITEID) {
+    $url->param('course', $courseid);
+}
+if ($userid !== 0) {
+    $url->param('user', $userid);
+}
+$PAGE->set_url($url);
 
-if (isset($CFG->iplookup)) {
-    // Clean up of old settings.
-    set_config('iplookup', NULL);
+// Tabs compatibility.
+switch($filtertype) {
+    case 'course':
+        $courseid = $filterselect;
+        break;
+    case 'site':
+        $courseid = SITEID;
+        break;
 }
 
-$urlparams = [
-    'id' => $ip,
-    'user' => $user,
-];
-
-// Params width and height are set, we assume to have a popup.
-if ($width > 0 && $height > 0) {
-    $urlparams['width'] = $width;
-    $urlparams['height'] = $height;
-    $ispopup = 1;
-} else if ($ispopup === 1) {  // Param popup was set, then we know that we want a popup.
-    $urlparams['ispopup'] = 1;
+if (empty($courseid)) {
+    $courseid = SITEID;
 }
-// Set the page layout accordingly.
-if ($ispopup) {
-    $PAGE->set_pagelayout('popup');
+
+$course = $DB->get_record('course', array('id' => $courseid), '*', MUST_EXIST);
+
+if ($userid) {
+    $user = $DB->get_record('user', array('id' => $userid), '*', MUST_EXIST);
+    $filtertype = 'user';
+    $filterselect = $user->id;
+
+    if ($user->deleted) {
+        echo $OUTPUT->header();
+        echo $OUTPUT->heading(get_string('userdeleted'));
+        echo $OUTPUT->footer();
+        die;
+    }
+
 } else {
-    $PAGE->set_pagelayout('standard');
+    $filtertype = 'course';
+    $filterselect = $course->id;
+    $user = $USER;
 }
 
-$PAGE->set_url('/iplookup/index.php', $urlparams);
-$PAGE->set_context(context_system::instance());
+require_login($course);
 
-$info = array($ip);
-$note = array();
-
-if (cleanremoteaddr($ip) === false) {
-    throw new \moodle_exception('invalidipformat', 'error');
+// Output HTML.
+if ($course->id == SITEID) {
+    $coursecontext = context_system::instance();
+} else {
+    $coursecontext = context_course::instance($course->id);
 }
 
-if (!ip_is_public($ip)) {
-    throw new \moodle_exception('iplookupprivate', 'error');
+require_capability('moodle/notes:view', $coursecontext);
+$systemcontext = context_system::instance();
+
+// Trigger event.
+note_view($coursecontext, $userid);
+
+$strnotes = get_string('notes', 'notes');
+if ($userid && $course->id == SITEID) {
+    $PAGE->set_context(context_user::instance($user->id));
+    $PAGE->navigation->extend_for_user($user);
+    // If we are looking at our own notes, then change focus to 'my notes'.
+    if ($userid == $USER->id) {
+        $notenode = $PAGE->navigation->find('notes', null)->make_inactive();
+    }
+
+    $notesurl = new moodle_url('/notes/index.php', array('user' => $userid));
+    $PAGE->navbar->add(get_string('notes', 'notes'), $notesurl);
+} else if ($course->id != SITEID) {
+    $notenode = $PAGE->navigation->find('currentcoursenotes', null)->make_inactive();
+
+    $notesurl = new moodle_url('/notes/index.php', array('user' => $userid, 'course' => $courseid));
+    $PAGE->navbar->add(get_string('notes', 'notes'), $notesurl);
+
+    $PAGE->set_context(context_course::instance($courseid));
+} else {
+    $link = null;
+    if (course_can_view_participants($coursecontext) || course_can_view_participants($systemcontext)) {
+        $link = new moodle_url('/user/index.php', array('id' => $course->id));
+    }
 }
 
-$info = iplookup_find_location($ip);
-
-if ($info['error']) {
-    // Can not display.
-    notice($info['error']);
+$PAGE->set_pagelayout('incourse');
+$PAGE->set_title($course->fullname);
+if ($course->id == SITEID) {
+    $PAGE->set_heading(fullname($user));
+} else {
+    $PAGE->set_heading($course->fullname);
 }
 
-if ($user) {
-    if ($user = $DB->get_record('user', array('id'=>$user, 'deleted'=>0))) {
-        // note: better not show full names to everybody
-        if (has_capability('moodle/user:viewdetails', context_user::instance($user->id))) {
-            array_unshift($info['title'], fullname($user));
+echo $OUTPUT->header();
+
+if ($course->id != SITEID) {
+    $backurl = new moodle_url('/user/view.php', ['id' => $userid, 'course' => $courseid]);
+    echo $OUTPUT->single_button($backurl, get_string('back'), 'get', ['class' => 'mb-3']);
+
+    $headerinfo = array('heading' => fullname($user), 'user' => $user);
+    echo $OUTPUT->context_header($headerinfo, 2);
+}
+
+echo $OUTPUT->heading($strnotes);
+
+$strsitenotes = get_string('sitenotes', 'notes');
+$strcoursenotes = get_string('coursenotes', 'notes');
+$strpersonalnotes = get_string('personalnotes', 'notes');
+$straddnewnote = get_string('addnewnote', 'notes');
+
+echo $OUTPUT->box_start();
+
+if ($courseid != SITEID) {
+    $context = context_course::instance($courseid);
+    $addid = has_capability('moodle/notes:manage', $context) ? $courseid : 0;
+    $view = has_capability('moodle/notes:view', $context);
+    $fullname = format_string($course->fullname, true, array('context' => $context));
+    note_print_notes(
+        '<a name="sitenotes"></a>' . $strsitenotes,
+        $addid,
+        $view,
+        0,
+        $userid,
+        NOTES_STATE_SITE,
+        0
+    );
+    note_print_notes(
+        '<a name="coursenotes"></a>' . $strcoursenotes. ' ('.$fullname.')',
+        $addid,
+        $view,
+        $courseid,
+        $userid,
+        NOTES_STATE_PUBLIC,
+        0
+    );
+    note_print_notes(
+        '<a name="personalnotes"></a>' . $strpersonalnotes,
+        $addid,
+        $view,
+        $courseid,
+        $userid,
+        NOTES_STATE_DRAFT,
+        $USER->id
+    );
+
+} else {  // Normal course.
+    $view = has_capability('moodle/notes:view', context_system::instance());
+    note_print_notes('<a name="sitenotes"></a>' . $strsitenotes, 0, $view, 0, $userid, NOTES_STATE_SITE, 0);
+    echo '<a name="coursenotes"></a>';
+
+    if (!empty($userid)) {
+        $courses = enrol_get_users_courses($userid);
+        foreach ($courses as $c) {
+            $ccontext = context_course::instance($c->id);
+            $cfullname = format_string($c->fullname, true, array('context' => $ccontext));
+            $header = '<a href="' . $CFG->wwwroot . '/course/view.php?id=' . $c->id . '">' . $cfullname . '</a>';
+            $viewcoursenotes = has_capability('moodle/notes:view', $ccontext);
+            if (has_capability('moodle/notes:manage', $ccontext)) {
+                $addid = $c->id;
+            } else {
+                $addid = 0;
+            }
+            note_print_notes($header, $addid, $viewcoursenotes, $c->id, $userid, NOTES_STATE_PUBLIC, 0);
         }
     }
 }
 
-$title = $ip;
-foreach ($info['title'] as $component) {
-    if (!empty(trim($component))) {
-        $title .= ' - ' . $component;
-    }
-}
-$PAGE->set_title(get_string('iplookup', 'admin').': '.$title);
-$PAGE->set_heading($title);
-echo $OUTPUT->header();
-
-// The map dimension is here as big as the popup/page is, so max with and at least 360px height.
-if ($ispopup) {
-    echo '<h1 class="iplookup h2">' . htmlspecialchars($title, ENT_QUOTES | ENT_HTML401 | ENT_SUBSTITUTE) . '</h1>';
-    $mapdim = 'width: '
-        . (($width > 0) ? $width . 'px' : '100%')
-        . '; height: '
-        . (($height > 0) ? $height . 'px;' : '100%; min-height:360px;');
-} else {
-    $mapdim = 'width:100%; height:100%;min-height:360px';
-}
-
-if (empty($CFG->googlemapkey3)) { // No Google API key is set, we use OSM.
-
-    // Have a fixed zoom factor to calculate corners of the map.
-    $fkt = 4;
-    $bboxleft = $info['longitude'] - $fkt;
-    $bboxbottom = $info['latitude'] - $fkt;
-    $bboxright = $info['longitude'] + $fkt;
-    $bboxtop = $info['latitude'] + $fkt;
-
-    echo '<div id="map" style="' . $mapdim . '">'
-        . '<object data="https://www.openstreetmap.org/export/embed.html?bbox='
-        . $bboxleft . '%2C' . $bboxbottom . '%2C' . $bboxright . '%2C' . $bboxtop
-        . '&layer=mapnik&marker=' . $info['latitude']  . '%2C' . $info['longitude'] . '" style="' . $mapdim . '"></object>'
-        . '</div>'
-        . '<div id="note">' . $info['note'] . '</div>';
-
-
-} else { // Google API key is set, then use Google Maps.
-    $PAGE->requires->js(new moodle_url(
-        'https://maps.googleapis.com/maps/api/js',
-        [
-            'key' => $CFG->googlemapkey3,
-            'sensor' => 'false'
-        ]
-    ));
-    $module = array('name'=>'core_iplookup', 'fullpath'=>'/iplookup/module.js');
-    $PAGE->requires->js_init_call('M.core_iplookup.init3', [$info['latitude'], $info['longitude'], $ip], true, $module);
-
-    echo '<div id="map" style="' . $mapdim . '"></div>';
-    echo '<div id="note">'.$info['note'].'</div>';
-}
+echo $OUTPUT->box_end();
 
 echo $OUTPUT->footer();

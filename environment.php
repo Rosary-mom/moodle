@@ -1,109 +1,178 @@
 <?php
-// This file is part of Moodle - http://moodle.org/
-//
-// Moodle is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// Moodle is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
-
 /**
- * This file is the admin frontend to execute all the checks available
- * in the environment.xml file. It includes database, php and
- * php_extensions. Also, it's possible to update the xml file
- * from moodle.org be able to check more and more versions.
+ * Info about the local environment, wrt RPC
  *
- * @package    core
- * @subpackage admin
- * @copyright  2006 onwards Eloy Lafuente (stronk7) {@link http://stronk7.com}
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * This should really be a singleton. A PHP5 Todo I guess.
  */
 
+class mnet_environment {
 
-require_once('../config.php');
-require_once($CFG->libdir.'/adminlib.php');
-require_once($CFG->libdir.'/environmentlib.php');
-require_once($CFG->libdir.'/componentlib.class.php');
+    var $id                 = 0;
+    var $wwwroot            = '';
+    var $ip_address         = '';
+    var $public_key         = '';
+    var $public_key_expires = 0;
+    var $last_connect_time  = 0;
+    var $last_log_id        = 0;
+    var $keypair            = array();
+    var $deleted            = 0;
 
-// Parameters
-$action  = optional_param('action', '', PARAM_ALPHANUMEXT);
-$version = optional_param('version', '', PARAM_FILE); //
+    /** @var string mnet host name. */
+    public $name;
 
-$extraurlparams = array();
-if ($version) {
-    $extraurlparams['version'] = $version;
-}
-admin_externalpage_setup('environment', '', $extraurlparams);
+    /** @var int mnet host transport. */
+    public $transport;
 
-// Handle the 'updatecomponent' action
-if ($action == 'updatecomponent' && confirm_sesskey()) {
-    // Create component installer and execute it
-    if ($cd = new component_installer('https://download.moodle.org',
-                                      'environment',
-                                      'environment.zip')) {
-        $status = $cd->install(); //returns COMPONENT_(ERROR | UPTODATE | INSTALLED)
-        switch ($status) {
-            case COMPONENT_ERROR:
-                if ($cd->get_error() == 'remotedownloaderror') {
-                    $a = new stdClass();
-                    $a->url  = 'https://download.moodle.org/environment/environment.zip';
-                    $a->dest = $CFG->dataroot . '/';
-                    throw new \moodle_exception($cd->get_error(), 'error', $PAGE->url, $a);
-                    die();
+    /** @var int mnet host port number. */
+    public $portno;
 
-                } else {
-                    throw new \moodle_exception($cd->get_error(), 'error', $PAGE->url);
-                    die();
-                }
+    /** @var int mnet host force theme. */
+    public $force_theme;
 
-            case COMPONENT_UPTODATE:
-                redirect($PAGE->url, get_string($cd->get_error(), 'error'));
-                die;
+    /** @var string mnet host theme. */
+    public $theme;
 
-            case COMPONENT_INSTALLED:
-                redirect($PAGE->url, get_string('componentinstalled', 'admin'));
-                die;
+    /** @var int mnet host application ID. */
+    public $applicationid;
+
+    /** @var int mnet host SSL verification. */
+    public $sslverification;
+
+    function init() {
+        global $CFG, $DB;
+
+        // Bootstrap the object data on first load.
+        if (!$hostobject = $DB->get_record('mnet_host', array('id'=>$CFG->mnet_localhost_id))) {
+            return false;
+        }
+        $temparr = get_object_vars($hostobject);
+        foreach($temparr as $key => $value) {
+            $this->$key = $value;
+        }
+        unset($hostobject, $temparr);
+
+        // Unless this is an install/upgrade, generate the SSL keys.
+        if (empty($this->public_key)) {
+            $this->get_keypair();
+        }
+
+        // We need to set up a record that represents 'all hosts'. Any rights
+        // granted to this host will be conferred on all hosts.
+        if (empty($CFG->mnet_all_hosts_id) ) {
+            $hostobject                     = new stdClass();
+            $hostobject->wwwroot            = '';
+            $hostobject->ip_address         = '';
+            $hostobject->public_key         = '';
+            $hostobject->public_key_expires = 0;
+            $hostobject->last_connect_time  = 0;
+            $hostobject->last_log_id        = 0;
+            $hostobject->deleted            = 0;
+            $hostobject->name               = 'All Hosts';
+
+            $hostobject->id = $DB->insert_record('mnet_host',$hostobject);
+            set_config('mnet_all_hosts_id', $hostobject->id);
+            $CFG->mnet_all_hosts_id = $hostobject->id;
+            unset($hostobject);
         }
     }
-}
 
-// Get current Moodle version
-$current_version = $CFG->release;
+    function get_keypair() {
+        global $DB, $CFG;
 
-// Calculate list of versions
-$versions = array();
-if ($contents = load_environment_xml()) {
-    if ($env_versions = get_list_of_environment_versions($contents)) {
-        // Set the current version at the beginning
-        $env_version = normalize_version($current_version); //We need this later (for the upwards)
-        $versions[$env_version] = $current_version;
-        // If no version has been previously selected, default to $current_version
-        if (empty($version)) {
-            $version =  $env_version;
+        // We don't generate keys on install/upgrade because we want the USER
+        // record to have an email address, city and country already.
+        if (during_initial_install()) return true;
+        if ($CFG->mnet_dispatcher_mode == 'off') return true;
+        if (!extension_loaded("openssl")) return true;
+        if (!empty($this->keypair)) return true;
+
+        $this->keypair = array();
+        $keypair = get_config('mnet', 'openssl');
+
+        if (!empty($keypair)) {
+            // Explode/Implode is faster than Unserialize/Serialize
+            list($this->keypair['certificate'], $this->keypair['keypair_PEM']) = explode('@@@@@@@@', $keypair);
         }
-        //Iterate over each version, adding bigger than current
-        foreach ($env_versions as $env_version) {
-            if (version_compare(normalize_version($current_version), $env_version, '<')) {
-                $versions[$env_version] = $env_version;
+
+        if ($this->public_key_expires <= time()) {
+            // Key generation/rotation
+
+            // 1. Archive the current key (if there is one).
+            $result = get_config('mnet', 'openssl_history');
+            if(empty($result)) {
+                set_config('openssl_history', serialize(array()), 'mnet');
+                $openssl_history = array();
+            } else {
+                $openssl_history = unserialize($result);
             }
+
+            if(count($this->keypair)) {
+                $this->keypair['expires'] = $this->public_key_expires;
+                array_unshift($openssl_history, $this->keypair);
+            }
+
+            // 2. How many old keys do we want to keep? Use array_slice to get
+            // rid of any we don't want
+            $openssl_generations = get_config('mnet', 'openssl_generations');
+            if(empty($openssl_generations)) {
+                set_config('openssl_generations', 3, 'mnet');
+                $openssl_generations = 3;
+            }
+
+            if(count($openssl_history) > $openssl_generations) {
+                $openssl_history = array_slice($openssl_history, 0, $openssl_generations);
+            }
+
+            set_config('openssl_history', serialize($openssl_history), 'mnet');
+
+            // 3. Generate fresh keys
+            $this->replace_keys();
         }
-        // Add 'upwards' to the last element
-        $versions[$env_version] = $env_version.' '.get_string('upwards', 'admin');
-    } else {
-        $versions = array('error' => get_string('error'));
+        return true;
+    }
+
+    function replace_keys() {
+        global $DB, $CFG;
+
+        $keypair = mnet_generate_keypair();
+        if (empty($keypair)) {
+            error_log('Can not generate keypair, sorry');
+            return;
+        }
+
+        $this->keypair = array();
+        $this->keypair            = $keypair;
+        $this->public_key         = $this->keypair['certificate'];
+        $details                  = openssl_x509_parse($this->public_key);
+        $this->public_key_expires = $details['validTo_time_t'];
+
+        $this->wwwroot            = $CFG->wwwroot;
+        if (empty($_SERVER['SERVER_ADDR'])) {
+            // SERVER_ADDR is only returned by Apache-like webservers
+            $my_hostname = mnet_get_hostname_from_uri($CFG->wwwroot);
+            $my_ip       = gethostbyname($my_hostname);  // Returns unmodified hostname on failure. DOH!
+            if ($my_ip == $my_hostname) {
+                $this->ip_address = 'UNKNOWN';
+            } else {
+                $this->ip_address = $my_ip;
+            }
+        } else {
+            $this->ip_address = $_SERVER['SERVER_ADDR'];
+        }
+
+        set_config('openssl', implode('@@@@@@@@', $this->keypair), 'mnet');
+
+        $DB->update_record('mnet_host', $this);
+        error_log('New public key has been generated. It expires ' . date('Y/m/d h:i:s', $this->public_key_expires));
+    }
+
+    function get_private_key() {
+        if (empty($this->keypair)) $this->get_keypair();
+        return openssl_pkey_get_private($this->keypair['keypair_PEM']);
+    }
+
+    function get_public_key() {
+        if (!isset($this->keypair)) $this->get_keypair();
+        return openssl_pkey_get_public($this->keypair['certificate']);
     }
 }
-
-// Get the results of the environment check.
-list($envstatus, $environment_results) = check_moodle_environment($version, ENV_SELECT_NEWER);
-
-// Display the page.
-$output = $PAGE->get_renderer('core', 'admin');
-echo $output->environment_check_page($versions, $version, $envstatus, $environment_results);

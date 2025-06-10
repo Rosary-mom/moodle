@@ -1,42 +1,42 @@
-// This file is part of Moodle - http://moodle.org/
-//
-// Moodle is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// Moodle is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+M.core_message = M.core_message || {};
 
-/**
- * Iplookup utility functions
- *
- * @package    core_iplookup
- * @copyright  2008 Petr Skoda (http://skodak.org)
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
-M.core_iplookup = {};
-
-M.core_iplookup.init3 = function(Y, latitude, longitude, ip) {
-    var ipLatlng = new google.maps.LatLng(latitude, longitude);
-
-    var mapOptions = {
-        center: ipLatlng,
-        zoom: 6,
-        mapTypeId: google.maps.MapTypeId.ROADMAP
-    };
-
-    var map = new google.maps.Map(document.getElementById("map"), mapOptions);
-
-    var marker = new google.maps.Marker({
-        position: ipLatlng,
-        map: map,
-        title: ip
-    });
+M.core_message.init_focus = function(Y, eid) {
+    document.getElementById(eid).focus();
 };
+
+M.core_message.init_refresh_page = function(Y, delay, url) {
+    var delay_callback = function() {
+        document.location.replace(url);
+    };
+    setTimeout(delay_callback, delay);
+};
+
+M.core_message.combinedsearchgotfocus = function(e) {
+    if (e.target.get('value')==this.defaultsearchterm) {
+        e.target.select();
+    }
+};
+
+M.core_message.init_editsettings = function(Y) {
+    var editsettings = {
+
+        init : function() {
+            var disableall = Y.one(".disableallcheckbox");
+            disableall.on('change', editsettings.changeState);
+            disableall.simulate("change");
+        },
+
+        changeState : function(e) {
+            Y.all('.notificationpreference').each(function(node) {
+                var disabled = e.target.get('checked');
+
+                node.removeAttribute('disabled');
+                if (disabled) {
+                    node.setAttribute('disabled', 1)
+                }
+            }, this);
+        }
+    }
+
+    editsettings.init();
+}

@@ -1,23 +1,42 @@
-Moodle Language Packs
+ACTIVITY MODULES
+----------------
 
-This directory contains the standard packaged Moodle language files,
-for making the Moodle interface appear in different interfaces.
-
-The default language for Moodle is the English language, under the
-Unicode scheme (UTF8).
-
-To add more languages to Moodle, you can either:
-
- 1) use the Moodle languages GUI in the interface to fetch
-    new languages and install them in your 'dataroot' directory.
-
- 2) download them and unzip the packs in this directory manually
+These are main modules in Moodle, allowing various activities.
 
 
-For more information, see the Moodle Documentation:
+Each of these modules contains a number of expected components:
 
-   http://docs.moodle.org/en/Translation
+  mod_form.php: a form to setup/update a module instance
+
+  version.php: defines some meta-info and provides upgrading code
+
+  pix/icon.gif: a 16x16 icon for the module
+
+  db/install.xml: an SQL dump of all the required db tables and data
+
+  index.php: a page to list all instances in a course
+
+  view.php: a page to view a particular instance
+
+  lib.php: any/all functions defined by the module should be in here.
+         constants should be defined using MODULENAME_xxxxxx
+         functions should be defined using modulename_xxxxxx
+
+         There are a number of standard functions:
+
+         modulename_add_instance()
+         modulename_update_instance()
+         modulename_delete_instance()
+
+         modulename_user_complete()
+         modulename_user_outline()
+
+         modulename_cron()
+
+         modulename_print_recent_activity()
 
 
-Cheers,
-Moodle Development Team
+If you are a developer and interested in developing new Modules see:
+
+   Moodle Documentation:  http://moodle.org/doc
+   Moodle Community:      http://moodle.org/community

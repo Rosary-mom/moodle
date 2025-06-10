@@ -14,102 +14,101 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Open the editor to modify an H5P content from a given H5P URL.
- *
- * @package    core_h5p
- * @copyright  2021 Sara Arjona <sara@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+require_once('../config.php');
+require_once('lib.php');
+require_once('edit_form.php');
+require_once($CFG->dirroot . '/course/lib.php');
 
-require_once(__DIR__ . '/../config.php');
-require_once("$CFG->libdir/formslib.php");
-require_once("$CFG->libdir/filestorage/file_storage.php");
+$noteid = optional_param('id', 0, PARAM_INT);
 
-require_login(null, false);
+$url = new moodle_url('/notes/edit.php');
 
-$contenturl = required_param('url', PARAM_LOCALURL);
-$returnurl = optional_param('returnurl', null, PARAM_LOCALURL);
+if ($noteid) {
+    // Existing note.
+    $url->param('id', $noteid);
+    if (!$note = note_load($noteid)) {
+        throw new \moodle_exception('invalidid', 'notes');
+    }
 
-// If no returnurl is defined, use local_referer.
-if (empty($returnurl)) {
-    $returnurl = get_local_referer(false);
-    if (empty($returnurl)) {
-        // If local referer is empty, returnurl will be set to default site page.
-        $returnurl = new \moodle_url('/');
+} else {
+    // Adding new note.
+    $courseid = required_param('courseid', PARAM_INT);
+    $userid   = required_param('userid', PARAM_INT);
+    $state    = optional_param('publishstate', NOTES_STATE_PUBLIC, PARAM_ALPHA);
+
+    $note = new stdClass();
+    $note->courseid     = $courseid;
+    $note->userid       = $userid;
+    $note->publishstate = $state;
+
+    $url->param('courseid', $courseid);
+    $url->param('userid', $userid);
+    if ($state !== NOTES_STATE_PUBLIC) {
+        $url->param('publishstate', $state);
     }
 }
 
-$contentid = null;
-$isreferenced = false;
-$context = \context_system::instance();
-if (!empty($contenturl)) {
-    list($originalfile, $h5p, $file) = \core_h5p\api::get_original_content_from_pluginfile_url($contenturl);
-    $isreferenced = ($file !== false);
-    if ($originalfile) {
-        // Check if the user can edit the content behind the given URL.
-        if (\core_h5p\api::can_edit_content($originalfile)) {
-            if (!$h5p) {
-                // This H5P file hasn't been deployed yet, so it should be saved to create the entry into the H5P DB.
-                \core_h5p\local\library\autoloader::register();
-                $factory = new \core_h5p\factory();
-                $config = new \stdClass();
-                $onlyupdatelibs = !\core_h5p\helper::can_update_library($originalfile);
-                $contentid = \core_h5p\helper::save_h5p($factory, $originalfile, $config, $onlyupdatelibs, false);
-            } else {
-                // The H5P content exists. Update the contentid value.
-                $contentid = $h5p->id;
-            }
-        }
-        if ($file) {
-            list($context, $course, $cm) = get_context_info_array($file->get_contextid());
-            if ($course) {
-                $context = \context_course::instance($course->id);
-            }
-        } else {
-            list($context, $course, $cm) = get_context_info_array($originalfile->get_contextid());
-            if ($course) {
-                $context = \context_course::instance($course->id);
-            }
-        }
-    }
-}
-
-if (empty($contentid)) {
-    throw new \moodle_exception('error:emptycontentid', 'core_h5p', $returnurl);
-}
-
-$pagetitle = get_string('h5peditor', 'core_h5p');
-$url = new \moodle_url("/h5p/edit.php");
-
-$PAGE->set_context($context);
 $PAGE->set_url($url);
-$PAGE->set_title($pagetitle);
-$PAGE->set_heading($pagetitle);
-$PAGE->set_pagelayout('course');
 
-$values = [
-    'id' => $contentid,
-    'contenturl' => $contenturl,
-    'returnurl' => $returnurl,
-];
-
-$form = new \core_h5p\form\editcontent_form(null, $values);
-if ($form->is_cancelled()) {
-    redirect($returnurl);
-} else if ($data = $form->get_data()) {
-    $form->save_h5p($data);
-    if (!empty($returnurl)) {
-        redirect($returnurl);
-    }
+if (!$course = $DB->get_record('course', array('id' => $note->courseid))) {
+    throw new \moodle_exception('invalidcourseid');
 }
+
+require_login($course);
+
+if (empty($CFG->enablenotes)) {
+    throw new \moodle_exception('notesdisabled', 'notes');
+}
+
+$context = context_course::instance($course->id);
+require_capability('moodle/notes:manage', $context);
+
+if (!$user = $DB->get_record('user', array('id' => $note->userid))) {
+    throw new \moodle_exception('invaliduserid');
+}
+
+$noteform = new note_edit_form();
+$noteform->set_data($note);
+
+// If form was cancelled then return to the notes list of the note.
+if ($noteform->is_cancelled()) {
+    redirect($CFG->wwwroot . '/notes/index.php?course=' . $note->courseid . '&amp;user=' . $note->userid);
+}
+
+// If data was submitted and validated, then save it to database.
+if ($note = $noteform->get_data()) {
+    if ($noteid) {
+        // A noteid has been used, we don't allow editing of course or user so
+        // lets unset them to be sure we never change that by accident.
+        unset($note->courseid);
+        unset($note->userid);
+    }
+    note_save($note);
+    // Redirect to notes list that contains this note.
+    redirect($CFG->wwwroot . '/notes/index.php?course=' . $note->courseid . '&amp;user=' . $note->userid);
+}
+
+if ($noteid) {
+    $strnotes = get_string('editnote', 'notes');
+} else {
+    $strnotes = get_string('addnewnote', 'notes');
+}
+
+// Output HTML.
+$link = null;
+if (course_can_view_participants($context) || course_can_view_participants(context_system::instance())) {
+    $link = new moodle_url('/user/index.php', array('id' => $course->id));
+}
+$PAGE->navbar->add(get_string('participants'), $link);
+$PAGE->navbar->add(fullname($user), new moodle_url('/user/view.php', array('id' => $user->id, 'course' => $course->id)));
+$PAGE->navbar->add(get_string('notes', 'notes'),
+                   new moodle_url('/notes/index.php', array('user' => $user->id, 'course' => $course->id)));
+$PAGE->navbar->add($strnotes);
+$PAGE->set_title($course->shortname . ': ' . $strnotes);
+$PAGE->set_heading($course->fullname);
 
 echo $OUTPUT->header();
+echo $OUTPUT->heading(fullname($user));
 
-if ($isreferenced) {
-    echo $OUTPUT->notification(get_string('contentinuse', 'core_h5p'), 'info');
-}
-
-$form->display();
-
+$noteform->display();
 echo $OUTPUT->footer();

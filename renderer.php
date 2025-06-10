@@ -14,238 +14,282 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-defined('MOODLE_INTERNAL') || die;
-
-use core\output\comboboxsearch;
-use core_grades\output\action_bar;
-use core_grades\output\penalty_indicator;
-use core_message\helper;
-use core_message\api;
-
 /**
- * Renderer class for the grade pages.
+ * Contains renderer objects for messaging
  *
- * @package    core_grades
- * @copyright  2021 Mihail Geshoski <mihail@moodle.com>
+ * @package    core_message
+ * @copyright  2011 Lancaster University Network Services Limited
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class core_grades_renderer extends plugin_renderer_base {
+
+defined('MOODLE_INTERNAL') || die();
+
+/**
+ * message Renderer
+ *
+ * Class for rendering various message objects
+ *
+ * @package    core_message
+ * @subpackage message
+ * @copyright  2011 Lancaster University Network Services Limited
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class core_message_renderer extends plugin_renderer_base {
 
     /**
-     * Renders the action bar for a given page.
+     * Display the interface to manage both message outputs and default message outputs
      *
-     * @param action_bar $actionbar
-     * @return string The HTML output
+     * @param  array $allprocessors  array of objects containing all message processors
+     * @param  array $processors  array of objects containing active message processors
+     * @param  array $providers   array of objects containing message providers
+     * @param  stdClass $preferences object containing current preferences
+     * @return string The text to render
      */
-    public function render_action_bar(action_bar $actionbar): string {
-        $data = $actionbar->export_for_template($this);
-        return $this->render_from_template($actionbar->get_template(), $data);
-    }
+    public function manage_messageoutput_settings($allprocessors, $processors, $providers, $preferences) {
+        $output = html_writer::start_tag('form', array('id' => 'defaultmessageoutputs', 'method' => 'post'));
+        $output .= html_writer::empty_tag('input', array('type' => 'hidden', 'name' => 'sesskey', 'value' => sesskey()));
 
-    /**
-     * Renders the group selector trigger element.
-     *
-     * @param object $course The course object.
-     * @param string|null $groupactionbaseurl This parameter has been deprecated since 4.4 and should not be used anymore.
-     * @return string|null The raw HTML to render.
-     * @deprecated since 4.5. See replacement renderable \core_course\output\actionbar\group_selector instead.
-     * @todo Final deprecation in Moodle 6.0. See MDL-82116.
-     */
-    #[\core\attribute\deprecated(
-        replacement: null,
-        since: '4.5',
-        reason: 'See replacement renderable \core_course\output\actionbar\group_selector.'
-    )]
-    public function group_selector(object $course, ?string $groupactionbaseurl = null): ?string {
-        global $USER;
+        // Add message output processors enabled/disabled and settings.
+        $output .= $this->heading(get_string('messageoutputs', 'message'));
+        $output .= $this->manage_messageoutputs($allprocessors);
 
-        \core\deprecation::emit_deprecation_if_present([$this, __FUNCTION__]);
-
-        if ($groupactionbaseurl !== null) {
-            debugging(
-                'The $groupactionbaseurl argument has been deprecated. Please remove it from your method calls.',
-                DEBUG_DEVELOPER,
-            );
-        }
-        // Make sure that group mode is enabled.
-        if (!$groupmode = $course->groupmode) {
-            return null;
-        }
-
-        $sbody = $this->render_from_template('core_group/comboboxsearch/searchbody', [
-            'courseid' => $course->id,
-            'currentvalue' => optional_param('groupsearchvalue', '', PARAM_NOTAGS),
-            'instance' => rand(),
-        ]);
-
-        $label = $groupmode == VISIBLEGROUPS ? get_string('selectgroupsvisible') : get_string('selectgroupsseparate');
-
-        $buttondata = ['label' => $label];
-
-        $context = context_course::instance($course->id);
-
-        if ($groupmode == VISIBLEGROUPS || has_capability('moodle/site:accessallgroups', $context)) {
-            $allowedgroups = groups_get_all_groups($course->id, 0, $course->defaultgroupingid);
-        } else {
-            $allowedgroups = groups_get_all_groups($course->id, $USER->id, $course->defaultgroupingid);
-        }
-
-        $activegroup = groups_get_course_group($course, true, $allowedgroups);
-        $buttondata['group'] = $activegroup;
-
-        if ($activegroup) {
-            $group = groups_get_group($activegroup);
-            $buttondata['selectedgroup'] = format_string($group->name, true, ['context' => $context]);
-        } else if ($activegroup === 0) {
-            $buttondata['selectedgroup'] = get_string('allparticipants');
-        }
-
-        $groupdropdown = new comboboxsearch(
-            false,
-            $this->render_from_template('core_group/comboboxsearch/group_selector', $buttondata),
-            $sbody,
-            'group-search',
-            'groupsearchwidget',
-            'groupsearchdropdown overflow-auto',
-            null,
-            true,
-            $label,
-            'group',
-            $activegroup
+        $output .= html_writer::start_tag('div', ['class' => 'form-buttons mb-3']);
+        $output .= html_writer::empty_tag('input',
+            array('type' => 'submit', 'value' => get_string('savechanges', 'admin'), 'class' => 'form-submit btn btn-primary')
         );
-        return $this->render($groupdropdown);
+        $output .= html_writer::end_tag('div');
+        $output .= html_writer::end_tag('form');
+
+        // Add active message output processors settings.
+        $output .= $this->manage_defaultmessageoutputs($processors, $providers, $preferences);
+
+        return $output;
     }
 
     /**
-     * Build the data to render the initials bar filter within the gradebook.
-     * Using this initials selector means you'll have to retain the use of the templates & JS to handle form submission.
-     * If a simple redirect on each selection is desired the standard user_search() within the user renderer is what you are after.
+     * Display the interface to manage message outputs
      *
-     * @param object $course The course object.
-     * @param context $context Our current context.
-     * @param string $slug The slug for the report that called this function.
-     * @return stdClass The data to output.
-     * @deprecated since 4.5. See replacement renderable \core_course\output\actionbar\initials_selector instead.
-     * @todo Final deprecation in Moodle 6.0. See MDL-82421.
+     * @param  array  $processors array of objects containing message processors
+     * @return string The text to render
      */
-    #[\core\attribute\deprecated(
-        replacement: null,
-        since: '4.5',
-        reason: 'See replacement renderable \core_course\output\actionbar\initials_selector.'
-    )]
-    public function initials_selector(
-        object $course,
-        context $context,
-        string $slug
-    ): stdClass {
-        global $SESSION, $COURSE;
+    public function manage_messageoutputs($processors) {
+        // Display the current workflows
+        $table = new html_table();
+        $table->attributes['class'] = 'admintable generaltable';
+        $table->data        = array();
+        $table->head        = array(
+            get_string('name'),
+            get_string('enable'),
+            get_string('settings'),
+        );
+        $table->colclasses = array(
+            'displayname', 'availability text-center', 'settings',
+        );
 
-        \core\deprecation::emit_deprecation_if_present([$this, __FUNCTION__]);
-        // User search.
-        $searchvalue = optional_param('gpr_search', null, PARAM_NOTAGS);
-        $userid = optional_param('grp_userid', null, PARAM_INT);
-        $url = new moodle_url($slug, ['id' => $course->id]);
-        $firstinitial = $SESSION->gradereport["filterfirstname-{$context->id}"] ?? '';
-        $lastinitial  = $SESSION->gradereport["filtersurname-{$context->id}"] ?? '';
+        foreach ($processors as $processor) {
+            $row = new html_table_row();
+            $row->attributes['class'] = 'messageoutputs';
 
-        $renderer = $this->page->get_renderer('core_user');
-        $initialsbar = $renderer->partial_user_search($url, $firstinitial, $lastinitial, true);
+            $name = new html_table_cell(get_string('pluginname', 'message_'.$processor->name));
+            $enable = new html_table_cell();
+            if (!$processor->available) {
+                $enable->text = html_writer::nonempty_tag('span', get_string('outputnotavailable', 'message'),
+                    array('class' => 'error')
+                );
+            } else {
+                $enable->text = html_writer::checkbox($processor->name, $processor->id, $processor->enabled, '',
+                    array('id' => $processor->name)
+                );
+            }
+            // Settings
+            $settings = new html_table_cell();
+            if ($processor->available && $processor->hassettings) {
+                $settingsurl = new moodle_url('/admin/settings.php', array('section' => 'messagesetting'.$processor->name));
+                $settings->text = html_writer::link($settingsurl, get_string('settings', 'message'));
+            }
 
-        $currentfilter = '';
-        if ($firstinitial !== '' && $lastinitial !== '') {
-            $currentfilter = get_string('filterbothactive', 'grades', ['first' => $firstinitial, 'last' => $lastinitial]);
-        } else if ($firstinitial !== '') {
-            $currentfilter = get_string('filterfirstactive', 'grades', ['first' => $firstinitial]);
-        } else if ($lastinitial !== '') {
-            $currentfilter = get_string('filterlastactive', 'grades', ['last' => $lastinitial]);
+            $row->cells = array($name, $enable, $settings);
+            $table->data[] = $row;
+        }
+        return html_writer::table($table);
+    }
+
+    /**
+     * Display the interface to manage default message outputs
+     *
+     * @param  array $processors  array of objects containing message processors
+     * @param  array $providers   array of objects containing message providers
+     * @param  stdClass $preferences object containing current preferences
+     * @return string The text to render
+     */
+    public function manage_defaultmessageoutputs($processors, $providers, $preferences) {
+        $context = [];
+
+        foreach ($processors as $processor) {
+            $processor->displayname = get_string('pluginname', 'message_'.$processor->name);
         }
 
-        $this->page->requires->js_call_amd('core_grades/searchwidget/initials', 'init', [$slug, $userid, $searchvalue]);
+        $activitycomponents = [];
+        $othercomponents = [];
 
-        $formdata = (object) [
-            'courseid' => $COURSE->id,
-            'initialsbars' => $initialsbar,
-        ];
-        $dropdowncontent = $this->render_from_template('core_grades/initials_dropdown_form', $formdata);
+        foreach ($providers as $provider) {
+            $provider->displayname = get_string('messageprovider:'.$provider->name, $provider->component);
+            $providersettingprefix = $provider->component.'_'.$provider->name.'_';
+            $provider->enabledsetting = $providersettingprefix.'disable';
+            $provider->enabled = empty($preferences->{$provider->enabledsetting});
+            $provider->enabledlabel = get_string('providerenabled', 'message', $provider->displayname);
+            $provider->settings = [];
 
-        return (object) [
-             'buttoncontent' => $currentfilter !== '' ? $currentfilter : get_string('filterbyname', 'core_grades'),
-             'buttonheader' => $currentfilter !== '' ? get_string('name') : null,
-             'dropdowncontent' => $dropdowncontent,
-        ];
-    }
+            // Settings for each processor
+            foreach ($processors as $processor) {
+                $setting = new StdClass();
 
-    /**
-     * Creates and renders a custom user heading.
-     *
-     * @param stdClass $user The user object.
-     * @param int $courseid The course ID.
-     * @param bool $showbuttons Whether to display buttons (message, add to contacts) within the heading.
-     * @return string The raw HTML to render.
-     */
-    public function user_heading(stdClass $user, int $courseid, bool $showbuttons = true): string {
-        global $USER;
+                $supportsprocessor = true;
+                if ($processor->name === 'sms') {
+                    $supportsprocessor = core_message\helper::supports_sms_notifications($provider);
+                }
+                $setting->supportsprocessor = $supportsprocessor;
 
-        $headingdata = [
-            'userprofileurl' => (new moodle_url('/user/view.php', ['id' => $user->id, 'course' => $courseid]))->out(false),
-            'name' => fullname($user),
-            'image' => $this->user_picture($user, ['size' => 50, 'link' => false])
-        ];
+                $setting->lockedsetting = $providersettingprefix.'locked['.$processor->name.']';
+                $preference = $processor->name.'_provider_'.$providersettingprefix.'locked';
 
-        if ($showbuttons) {
-            // Generate the data for the 'message' button.
-            $messagelinkattributes = array_map(function($name, $value) {
-                return ['name' => $name, 'value' => $value];
-            }, array_keys(helper::messageuser_link_params($user->id)), helper::messageuser_link_params($user->id));
-            $messagelinkattributes[] = ['name' => 'class', 'value' => 'btn px-0'];
+                $setting->locked = false;
+                if (property_exists($preferences, $preference)) {
+                    $setting->locked = $preferences->{$preference} == 1;
+                }
 
-            $headingdata['buttons'][] = [
-                'title' => get_string('message', 'message'),
-                'url' => (new moodle_url('/message/index.php', ['id' => $user->id]))->out(false),
-                'icon' => ['name' => 't/message', 'component' => 'core'],
-                'linkattributes' => $messagelinkattributes
-            ];
-            // Include js for messaging.
-            helper::messageuser_requirejs();
+                $setting->enabledsetting = $providersettingprefix.'enabled['.$processor->name.']';
+                $preference = 'message_provider_'.$providersettingprefix.'enabled';
 
-            if ($USER->id != $user->id) {
-                // Generate the data for the 'contact' button.
-                $iscontact = api::is_contact($USER->id, $user->id);
-                $contacttitle = $iscontact ? 'removefromyourcontacts' : 'addtoyourcontacts';
-                $contacturlaction = $iscontact ? 'removecontact' : 'addcontact';
-                $contacticon = $iscontact ? 't/removecontact' : 't/addcontact';
-
-                $togglelinkparams = helper::togglecontact_link_params($user, $iscontact, false);
-                $togglecontactlinkattributes = array_map(function($name, $value) {
-                    if ($name === 'class') {
-                        $value .= ' btn px-0';
-                    }
-                    return ['name' => $name, 'value' => $value];
-                }, array_keys($togglelinkparams), $togglelinkparams);
-
-                $headingdata['buttons'][] = [
-                    'title' => get_string($contacttitle, 'message'),
-                    'url' => (new moodle_url('/message/index.php', ['user1' => $USER->id, 'user2' => $user->id,
-                        $contacturlaction => $user->id, 'sesskey' => sesskey()]))->out(false),
-                    'icon' => ['name' => $contacticon, 'component' => 'core'],
-                    'linkattributes' => $togglecontactlinkattributes
+                $setting->enabled = false;
+                if (property_exists($preferences, $preference)) {
+                    $setting->enabled = (int)in_array($processor->name, explode(',', $preferences->{$preference}));
+                }
+                $labelparams = [
+                    'provider'  => $provider->displayname,
+                    'processor' => $processor->displayname,
                 ];
-                // Include js for contact toggle.
-                helper::togglecontact_requirejs();
+                $setting->enabledlabel = get_string('sendingviaenabled', 'message', $labelparams);
+                $setting->lockedlabel = get_string('sendingvialocked', 'message', $labelparams);
+
+                $provider->settings[] = $setting;
+            }
+
+            // Order the components so that the activities appear first, followed
+            // by the system and then anything else.
+            if ($provider->component != 'moodle') {
+                if (substr($provider->component, 0, 4) == 'mod_') {
+                    // Activities.
+                    $activitycomponents[] = $provider->component;
+                } else {
+                    // Other stuff.
+                    $othercomponents[] = $provider->component;
+                }
             }
         }
 
-        return $this->render_from_template('core_grades/user_heading', $headingdata);
+        $activitycomponents = array_unique($activitycomponents);
+        asort($activitycomponents);
+        $othercomponents = array_unique($othercomponents);
+        asort($othercomponents);
+        $components = array_merge($activitycomponents, ['moodle'], $othercomponents);
+        asort($providers);
+
+        $colspan = count($processors) + 2;
+        $componentsexport = [];
+
+        foreach ($components as $component) {
+            $componentexport = new StdClass();
+            $componentexport->name = $component;
+
+            if ($component != 'moodle') {
+                $componentexport->displayname = get_string('pluginname', $component);
+            } else {
+                $componentexport->displayname = get_string('coresystem');
+            }
+
+            $componentexport->providers = [];
+            foreach ($providers as $provider) {
+                if ($provider->component == $component) {
+                    $componentexport->providers[] = $provider;
+                }
+            }
+            $componentexport->colspan = $colspan;
+            $componentsexport[] = $componentexport;
+        }
+
+        $context['processors'] = array_values($processors);
+        $context['components'] = $componentsexport;
+
+        return $this->render_from_template('message/default_notification_preferences', $context);
     }
 
     /**
-     * Renders the penalty indicator.
+     * Display the interface for notification preferences
      *
-     * @param penalty_indicator $penaltyindicator
-     * @return string The HTML output
+     * @param object $user instance of a user
+     * @return string The text to render
      */
-    public function render_penalty_indicator(penalty_indicator $penaltyindicator): string {
-        $data = $penaltyindicator->export_for_template($this);
-        return $this->render_from_template($penaltyindicator->get_template(), $data);
+    public function render_user_notification_preferences($user) {
+        $processors = get_message_processors();
+        $providers = message_get_providers_for_user($user->id);
+
+        $preferences = \core_message\api::get_all_message_preferences($processors, $providers, $user);
+        $notificationlistoutput = new \core_message\output\preferences\notification_list($processors, $providers,
+            $preferences, $user);
+        return $this->render_from_template('message/notification_preferences',
+            $notificationlistoutput->export_for_template($this));
+    }
+
+    /**
+     * Display the interface for message preferences
+     *
+     * @param object $user instance of a user
+     * @return string The text to render
+     */
+    public function render_user_message_preferences($user) {
+        global $CFG;
+
+        // Filter out enabled, available system_configured and user_configured processors only.
+        $readyprocessors = array_filter(get_message_processors(), function($processor) {
+            return $processor->enabled &&
+                $processor->configured &&
+                $processor->object->is_user_configured() &&
+                // Filter out processors that don't have and message preferences to configure.
+                $processor->object->has_message_preferences();
+        });
+
+        $providers = array_filter(message_get_providers_for_user($user->id), function($provider) {
+            return $provider->component === 'moodle';
+        });
+        $preferences = \core_message\api::get_all_message_preferences($readyprocessors, $providers, $user);
+        $notificationlistoutput = new \core_message\output\preferences\message_notification_list($readyprocessors,
+            $providers, $preferences, $user);
+        $context = $notificationlistoutput->export_for_template($this);
+
+        // Get the privacy settings options for being messaged.
+        $privacysetting = \core_message\api::get_user_privacy_messaging_preference($user->id);
+        $choices = array();
+        $choices[] = [
+            'value' => \core_message\api::MESSAGE_PRIVACY_ONLYCONTACTS,
+            'text' => get_string('contactableprivacy_onlycontacts', 'message'),
+            'checked' => ($privacysetting == \core_message\api::MESSAGE_PRIVACY_ONLYCONTACTS)
+        ];
+        $choices[] = [
+            'value' => \core_message\api::MESSAGE_PRIVACY_COURSEMEMBER,
+            'text' => get_string('contactableprivacy_coursemember', 'message'),
+            'checked' => ($privacysetting == \core_message\api::MESSAGE_PRIVACY_COURSEMEMBER)
+        ];
+        if (!empty($CFG->messagingallusers)) {
+            // Add the MESSAGE_PRIVACY_SITE option when site-wide messaging between users is enabled.
+            $choices[] = [
+                'value' => \core_message\api::MESSAGE_PRIVACY_SITE,
+                'text' => get_string('contactableprivacy_site', 'message'),
+                'checked' => ($privacysetting == \core_message\api::MESSAGE_PRIVACY_SITE)
+            ];
+        }
+        $context['privacychoices'] = $choices;
+
+        return $this->render_from_template('message/message_preferences', $context);
     }
 }

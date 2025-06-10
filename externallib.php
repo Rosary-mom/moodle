@@ -14,209 +14,720 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+use core_external\external_api;
+use core_external\external_format_value;
+use core_external\external_function_parameters;
+use core_external\external_multiple_structure;
+use core_external\external_single_structure;
+use core_external\external_value;
+use core_external\external_warnings;
+use core_external\util;
+
 /**
- * Support for external API
+ * External notes API
  *
- * @package    core_webservice
- * @copyright  2009 Petr Skodak
+ * @package    core_notes
+ * @category   external
+ * @copyright  2011 Jerome Mouneyrac
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-use core_external\util;
+defined('MOODLE_INTERNAL') || die();
 
-defined('MOODLE_INTERNAL') || die;
-
-// Please note that this file and all of the classes and functions listed below will be deprecated from Moodle 4.6.
-// This deprecation is delayed to aid plugin developers when maintaining plugins for multiple Moodle versions.
-// See MDL-76583 for further information.
-
-// If including this file for unit testing, it _must_ be run in an isolated process to prevent
-// any side effect upon other tests.
-require_phpunit_isolation();
-
-class_alias(\core_external\external_api::class, 'external_api');
-class_alias(\core_external\restricted_context_exception::class, 'restricted_context_exception');
-class_alias(\core_external\external_description::class, 'external_description');
-class_alias(\core_external\external_value::class, 'external_value');
-class_alias(\core_external\external_format_value::class, 'external_format_value');
-class_alias(\core_external\external_single_structure::class, 'external_single_structure');
-class_alias(\core_external\external_multiple_structure::class, 'external_multiple_structure');
-class_alias(\core_external\external_function_parameters::class, 'external_function_parameters');
-class_alias(\core_external\util::class, 'external_util');
-class_alias(\core_external\external_files::class, 'external_files');
-class_alias(\core_external\external_warnings::class, 'external_warnings');
-class_alias(\core_external\external_settings::class, 'external_settings');
+require_once($CFG->dirroot . "/notes/lib.php");
 
 /**
- * Generate a token
+ * Notes external functions
  *
- * @param string $tokentype EXTERNAL_TOKEN_EMBEDDED|EXTERNAL_TOKEN_PERMANENT
- * @param stdClass|int $serviceorid service linked to the token
- * @param int $userid user linked to the token
- * @param stdClass|int $contextorid
- * @param int $validuntil date when the token expired
- * @param string $iprestriction allowed ip - if 0 or empty then all ips are allowed
- * @return string generated token
- * @since Moodle 2.0
+ * @package    core_notes
+ * @category   external
+ * @copyright  2011 Jerome Mouneyrac
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @since Moodle 2.2
  */
-function external_generate_token($tokentype, $serviceorid, $userid, $contextorid, $validuntil = 0, $iprestriction = '') {
-    if (is_numeric($serviceorid)) {
-        $service = util::get_service_by_id($serviceorid);
-    } else if (is_string($serviceorid)) {
-        $service = util::get_service_by_name($serviceorid);
-    } else {
-        $service = $serviceorid;
+class core_notes_external extends external_api {
+
+    /**
+     * Returns description of method parameters
+     *
+     * @return external_function_parameters
+     * @since Moodle 2.2
+     */
+    public static function create_notes_parameters() {
+        return new external_function_parameters(
+            array(
+                'notes' => new external_multiple_structure(
+                    new external_single_structure(
+                        array(
+                            'userid' => new external_value(PARAM_INT, 'id of the user the note is about'),
+                            'publishstate' => new external_value(PARAM_ALPHA, '\'personal\', \'course\' or \'site\''),
+                            'courseid' => new external_value(PARAM_INT, 'course id of the note (in Moodle a note can only be created into a course, even for site and personal notes)'),
+                            'text' => new external_value(PARAM_RAW, 'the text of the message - text or HTML'),
+                            'format' => new external_format_value('text', VALUE_DEFAULT, FORMAT_MOODLE),
+                            'clientnoteid' => new external_value(PARAM_ALPHANUMEXT, 'your own client id for the note. If this id is provided, the fail message id will be returned to you', VALUE_OPTIONAL),
+                        )
+                    )
+                )
+            )
+        );
     }
 
-    if (!is_object($contextorid)) {
-        $context = context::instance_by_id($contextorid, MUST_EXIST);
-    } else {
-        $context = $contextorid;
+    /**
+     * Create notes about some users
+     * Note: code should be matching the /notes/edit.php checks
+     * and the /user/addnote.php checks. (they are similar cheks)
+     *
+     * @param array $notes  An array of notes to create.
+     * @return array (success infos and fail infos)
+     * @since Moodle 2.2
+     */
+    public static function create_notes($notes = array()) {
+        global $CFG, $DB;
+
+        $params = self::validate_parameters(self::create_notes_parameters(), array('notes' => $notes));
+
+        // Check if note system is enabled.
+        if (!$CFG->enablenotes) {
+            throw new moodle_exception('notesdisabled', 'notes');
+        }
+
+        // Retrieve all courses.
+        $courseids = array();
+        foreach ($params['notes'] as $note) {
+            $courseids[] = $note['courseid'];
+        }
+        $courses = $DB->get_records_list("course", "id", $courseids);
+
+        // Retrieve all users of the notes.
+        $userids = array();
+        foreach ($params['notes'] as $note) {
+            $userids[] = $note['userid'];
+        }
+        list($sqluserids, $sqlparams) = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'userid_');
+        $users = $DB->get_records_select("user", "id " . $sqluserids . " AND deleted = 0", $sqlparams);
+
+        $resultnotes = array();
+        foreach ($params['notes'] as $note) {
+
+            $success = true;
+            $resultnote = array(); // The infos about the success of the operation.
+
+            // Check the course exists.
+            if (empty($courses[$note['courseid']])) {
+                $success = false;
+                $errormessage = get_string('invalidcourseid', 'error');
+            } else {
+                // Ensure the current user is allowed to run this function.
+                $context = context_course::instance($note['courseid']);
+                self::validate_context($context);
+                require_capability('moodle/notes:manage', $context);
+            }
+
+            // Check the user exists.
+            if (empty($users[$note['userid']])) {
+                $success = false;
+                $errormessage = get_string('invaliduserid', 'notes', $note['userid']);
+            }
+
+            // Build the resultnote.
+            if (isset($note['clientnoteid'])) {
+                $resultnote['clientnoteid'] = $note['clientnoteid'];
+            }
+
+            if ($success) {
+                // Now we can create the note.
+                $dbnote = new stdClass;
+                $dbnote->courseid = $note['courseid'];
+                $dbnote->userid = $note['userid'];
+                // Need to support 'html' and 'text' format values for backward compatibility.
+                switch (strtolower($note['format'])) {
+                    case 'html':
+                        $textformat = FORMAT_HTML;
+                        break;
+                    case 'text':
+                        $textformat = FORMAT_PLAIN;
+                        break;
+                    default:
+                        $textformat = util::validate_format($note['format']);
+                        break;
+                }
+                $dbnote->content = $note['text'];
+                $dbnote->format = $textformat;
+
+                // Get the state ('personal', 'course', 'site').
+                switch ($note['publishstate']) {
+                    case 'personal':
+                        $dbnote->publishstate = NOTES_STATE_DRAFT;
+                        break;
+                    case 'course':
+                        $dbnote->publishstate = NOTES_STATE_PUBLIC;
+                        break;
+                    case 'site':
+                        $dbnote->publishstate = NOTES_STATE_SITE;
+                        $dbnote->courseid = SITEID;
+                        break;
+                    default:
+                        break;
+                }
+
+                // TODO MDL-31119 performance improvement - if possible create a bulk functions for saving multiple notes at once
+                if (note_save($dbnote)) { // Note_save attribut an id in case of success.
+                    $success = $dbnote->id;
+                }
+
+                $resultnote['noteid'] = $success;
+            } else {
+                // WARNINGS: for backward compatibility we return this errormessage.
+                //          We should have thrown exceptions as these errors prevent results to be returned.
+                // See http://docs.moodle.org/dev/Errors_handling_in_web_services#When_to_send_a_warning_on_the_server_side .
+                $resultnote['noteid'] = -1;
+                $resultnote['errormessage'] = $errormessage;
+            }
+
+            $resultnotes[] = $resultnote;
+        }
+
+        return $resultnotes;
     }
 
-    return util::generate_token(
-        $tokentype,
-        $service,
-        $userid,
-        $context,
-        $validuntil,
-        $iprestriction
-    );
-}
-
-/**
- * Create and return a session linked token. Token to be used for html embedded client apps that want to communicate
- * with the Moodle server through web services. The token is linked to the current session for the current page request.
- * It is expected this will be called in the script generating the html page that is embedding the client app and that the
- * returned token will be somehow passed into the client app being embedded in the page.
- *
- * @param string $servicename name of the web service. Service name as defined in db/services.php
- * @param int $context context within which the web service can operate.
- * @return string returns token id.
- * @since Moodle 2.0
- */
-function external_create_service_token($servicename, $contextid) {
-    global $USER;
-
-    return util::generate_token(
-        EXTERNAL_TOKEN_EMBEDDED,
-        util::get_service_by_name($servicename),
-        $USER->id,
-        \context::instance_by_id($contextid)
-    );
-}
-
-/**
- * Delete all pre-built services (+ related tokens) and external functions information defined in the specified component.
- *
- * @param string $component name of component (moodle, etc.)
- */
-function external_delete_descriptions($component) {
-    util::delete_service_descriptions($component);
-}
-
-/**
- * Validate text field format against known FORMAT_XXX
- *
- * @param array $format the format to validate
- * @return the validated format
- * @throws coding_exception
- * @since Moodle 2.3
- */
-function external_validate_format($format) {
-    return util::validate_format($format);
-}
-
-/**
- * Format the string to be returned properly as requested by the either the web service server,
- * either by an internally call.
- * The caller can change the format (raw) with the external_settings singleton
- * All web service servers must set this singleton when parsing the $_GET and $_POST.
- *
- * <pre>
- * Options are the same that in {@link format_string()} with some changes:
- *      filter      : Can be set to false to force filters off, else observes {@link external_settings}.
- * </pre>
- *
- * @param string $str The string to be filtered. Should be plain text, expect
- * possibly for multilang tags.
- * @param boolean $striplinks To strip any link in the result text. Moodle 1.8 default changed from false to true! MDL-8713
- * @param context|int $contextorid The id of the context for the string or the context (affects filters).
- * @param array $options options array/object or courseid
- * @return string text
- * @since Moodle 3.0
- */
-function external_format_string($str, $context, $striplinks = true, $options = []) {
-    if (!$context instanceof context) {
-        $context = context::instance_by_id($context);
+    /**
+     * Returns description of method result value
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.2
+     */
+    public static function create_notes_returns() {
+        return new external_multiple_structure(
+            new external_single_structure(
+                array(
+                    'clientnoteid' => new external_value(PARAM_ALPHANUMEXT, 'your own id for the note', VALUE_OPTIONAL),
+                    'noteid' => new external_value(PARAM_INT, 'ID of the created note when successful, -1 when failed'),
+                    'errormessage' => new external_value(PARAM_TEXT, 'error message - if failed', VALUE_OPTIONAL)
+                )
+            )
+        );
     }
 
-    return util::format_string($str, $context, $striplinks, $options);
-}
-
-/**
- * Format the text to be returned properly as requested by the either the web service server,
- * either by an internally call.
- * The caller can change the format (raw, filter, file, fileurl) with the external_settings singleton
- * All web service servers must set this singleton when parsing the $_GET and $_POST.
- *
- * <pre>
- * Options are the same that in {@link format_text()} with some changes in defaults to provide backwards compatibility:
- *      trusted     :   If true the string won't be cleaned. Default false.
- *      noclean     :   If true the string won't be cleaned only if trusted is also true. Default false.
- *      nocache     :   If true the string will not be cached and will be formatted every call. Default false.
- *      filter      :   Can be set to false to force filters off, else observes {@link external_settings}.
- *      para        :   If true then the returned string will be wrapped in div tags. Default (different from format_text) false.
- *                      Default changed because div tags are not commonly needed.
- *      newlines    :   If true then lines newline breaks will be converted to HTML newline breaks. Default true.
- *      context     :   Not used! Using contextid parameter instead.
- *      overflowdiv :   If set to true the formatted text will be encased in a div with the class no-overflow before being
- *                      returned. Default false.
- *      allowid     :   If true then id attributes will not be removed, even when using htmlpurifier. Default (different from
- *                      format_text) true. Default changed id attributes are commonly needed.
- *      blanktarget :   If true all <a> tags will have target="_blank" added unless target is explicitly specified.
- * </pre>
- *
- * @param string $text The content that may contain ULRs in need of rewriting.
- * @param int $textformat The text format.
- * @param context|int $context This parameter and the next two identify the file area to use.
- * @param string $component
- * @param string $filearea helps identify the file area.
- * @param int $itemid helps identify the file area.
- * @param object/array $options text formatting options
- * @return array text + textformat
- * @since Moodle 2.3
- * @since Moodle 3.2 component, filearea and itemid are optional parameters
- */
-function external_format_text($text, $textformat, $context, $component = null, $filearea = null, $itemid = null, $options = null) {
-    if (!$context instanceof context) {
-        $context = context::instance_by_id($context);
+    /**
+     * Returns description of delete_notes parameters
+     *
+     * @return external_function_parameters
+     * @since Moodle 2.5
+     */
+    public static function delete_notes_parameters() {
+        return new external_function_parameters(
+            array(
+                "notes"=> new external_multiple_structure(
+                    new external_value(PARAM_INT, 'ID of the note to be deleted'), 'Array of Note Ids to be deleted.'
+                )
+            )
+        );
     }
 
-    return util::format_text($text, $textformat, $context, $component, $filearea, $itemid, $options);
-}
+    /**
+     * Delete notes about users.
+     * Note: code should be matching the /notes/delete.php checks.
+     *
+     * @param array $notes An array of ids for the notes to delete.
+     * @return null
+     * @since Moodle 2.5
+     */
+    public static function delete_notes($notes = array()) {
+        global $CFG;
 
-/**
- * Generate or return an existing token for the current authenticated user.
- * This function is used for creating a valid token for users authenticathing via login/token.php or admin/tool/mobile/launch.php.
- *
- * @param stdClass $service external service object
- * @return stdClass token object
- * @since Moodle 3.2
- */
-function external_generate_token_for_current_user($service) {
-    return util::generate_token_for_current_user($service);
-}
+        $params = self::validate_parameters(self::delete_notes_parameters(), array('notes' => $notes));
 
-/**
- * Set the last time a token was sent and trigger the \core\event\webservice_token_sent event.
- *
- * This function is used when a token is generated by the user via login/token.php or admin/tool/mobile/launch.php.
- * In order to protect the privatetoken, we remove it from the event params.
- *
- * @param  stdClass $token token object
- * @since  Moodle 3.2
- */
-function external_log_token_request($token): void {
-    util::log_token_request($token);
+        // Check if note system is enabled.
+        if (!$CFG->enablenotes) {
+            throw new moodle_exception('notesdisabled', 'notes');
+        }
+        $warnings = array();
+        foreach ($params['notes'] as $noteid) {
+            $note = note_load($noteid);
+            if (isset($note->id)) {
+                // Ensure the current user is allowed to run this function.
+                $context = context_course::instance($note->courseid);
+                self::validate_context($context);
+                require_capability('moodle/notes:manage', $context);
+                note_delete($note);
+            } else {
+                $warnings[] = array('item'=>'note', 'itemid'=>$noteid, 'warningcode'=>'badid', 'message'=>'Note does not exist');
+            }
+        }
+        return $warnings;
+    }
+
+    /**
+     * Returns description of delete_notes result value.
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.5
+     */
+    public static function delete_notes_returns() {
+        return  new external_warnings('item is always \'note\'',
+                            'When errorcode is savedfailed the note could not be modified.' .
+                            'When errorcode is badparam, an incorrect parameter was provided.' .
+                            'When errorcode is badid, the note does not exist',
+                            'errorcode can be badparam (incorrect parameter), savedfailed (could not be modified), or badid (note does not exist)');
+
+    }
+
+    /**
+     * Returns description of get_notes parameters.
+     *
+     * @return external_function_parameters
+     * @since Moodle 2.5
+     */
+    public static function get_notes_parameters() {
+        return new external_function_parameters(
+            array(
+                "notes"=> new external_multiple_structure(
+                    new external_value(PARAM_INT, 'ID of the note to be retrieved'), 'Array of Note Ids to be retrieved.'
+                )
+            )
+        );
+    }
+
+    /**
+     * Get notes about users.
+     *
+     * @param array $notes An array of ids for the notes to retrieve.
+     * @return null
+     * @since Moodle 2.5
+     */
+    public static function get_notes($notes) {
+        global $CFG;
+
+        $params = self::validate_parameters(self::get_notes_parameters(), array('notes' => $notes));
+        // Check if note system is enabled.
+        if (!$CFG->enablenotes) {
+            throw new moodle_exception('notesdisabled', 'notes');
+        }
+        $resultnotes = array();
+        foreach ($params['notes'] as $noteid) {
+            $resultnote = array();
+
+            $note = note_load($noteid);
+            if (isset($note->id)) {
+                // Ensure the current user is allowed to run this function.
+                $context = context_course::instance($note->courseid);
+                self::validate_context($context);
+                require_capability('moodle/notes:view', $context);
+                list($gotnote['text'], $gotnote['format']) = util::format_text($note->content,
+                                                                                  $note->format,
+                                                                                  $context->id,
+                                                                                  'notes',
+                                                                                  '',
+                                                                                  '');
+                $gotnote['noteid'] = $note->id;
+                $gotnote['userid'] = $note->userid;
+                $gotnote['publishstate'] = $note->publishstate;
+                $gotnote['courseid'] = $note->courseid;
+                $resultnotes["notes"][] = $gotnote;
+            } else {
+                $resultnotes["warnings"][] = array('item' => 'note',
+                                                   'itemid' => $noteid,
+                                                   'warningcode' => 'badid',
+                                                   'message' => 'Note does not exist');
+            }
+        }
+        return $resultnotes;
+    }
+
+    /**
+     * Returns description of get_notes result value.
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.5
+     */
+    public static function get_notes_returns() {
+        return new external_single_structure(
+            array(
+                'notes' => new external_multiple_structure(
+                    new external_single_structure(
+                        array(
+                            'noteid' => new external_value(PARAM_INT, 'id of the note', VALUE_OPTIONAL),
+                            'userid' => new external_value(PARAM_INT, 'id of the user the note is about', VALUE_OPTIONAL),
+                            'publishstate' => new external_value(PARAM_ALPHA, '\'personal\', \'course\' or \'site\'', VALUE_OPTIONAL),
+                            'courseid' => new external_value(PARAM_INT, 'course id of the note', VALUE_OPTIONAL),
+                            'text' => new external_value(PARAM_RAW, 'the text of the message - text or HTML', VALUE_OPTIONAL),
+                            'format' => new external_format_value('text', VALUE_OPTIONAL),
+                        ), 'note'
+                    )
+                 ),
+                 'warnings' => new external_warnings('item is always \'note\'',
+                        'When errorcode is savedfailed the note could not be modified.' .
+                        'When errorcode is badparam, an incorrect parameter was provided.' .
+                        'When errorcode is badid, the note does not exist',
+                        'errorcode can be badparam (incorrect parameter), savedfailed (could not be modified), or badid (note does not exist)')
+            )
+        );
+    }
+
+    /**
+     * Returns description of update_notes parameters.
+     *
+     * @return external_function_parameters
+     * @since Moodle 2.5
+     */
+    public static function update_notes_parameters() {
+        return new external_function_parameters(
+            array(
+                'notes' => new external_multiple_structure(
+                    new external_single_structure(
+                        array(
+                            'id' => new external_value(PARAM_INT, 'id of the note'),
+                            'publishstate' => new external_value(PARAM_ALPHA, '\'personal\', \'course\' or \'site\''),
+                            'text' => new external_value(PARAM_RAW, 'the text of the message - text or HTML'),
+                            'format' => new external_format_value('text', VALUE_DEFAULT),
+                        )
+                    ), "Array of Notes", VALUE_DEFAULT, array()
+                )
+            )
+        );
+    }
+
+    /**
+     * Update notes about users.
+     *
+     * @param array $notes An array of ids for the notes to update.
+     * @return array fail infos.
+     * @since Moodle 2.2
+     */
+    public static function update_notes($notes = array()) {
+        global $CFG, $DB;
+
+        $params = self::validate_parameters(self::update_notes_parameters(), array('notes' => $notes));
+
+        // Check if note system is enabled.
+        if (!$CFG->enablenotes) {
+            throw new moodle_exception('notesdisabled', 'notes');
+        }
+
+        $warnings = array();
+        foreach ($params['notes'] as $note) {
+            $notedetails = note_load($note['id']);
+            if (isset($notedetails->id)) {
+                // Ensure the current user is allowed to run this function.
+                $context = context_course::instance($notedetails->courseid);
+                self::validate_context($context);
+                require_capability('moodle/notes:manage', $context);
+
+                $dbnote = new stdClass;
+                $dbnote->id = $note['id'];
+                $dbnote->content = $note['text'];
+                $dbnote->format = util::validate_format($note['format']);
+                // Get the state ('personal', 'course', 'site').
+                switch ($note['publishstate']) {
+                    case 'personal':
+                        $dbnote->publishstate = NOTES_STATE_DRAFT;
+                        break;
+                    case 'course':
+                        $dbnote->publishstate = NOTES_STATE_PUBLIC;
+                        break;
+                    case 'site':
+                        $dbnote->publishstate = NOTES_STATE_SITE;
+                        $dbnote->courseid = SITEID;
+                        break;
+                    default:
+                        $warnings[] = array('item' => 'note',
+                                            'itemid' => $note["id"],
+                                            'warningcode' => 'badparam',
+                                            'message' => 'Provided publishstate incorrect');
+                        break;
+                }
+                if (!note_save($dbnote)) {
+                    $warnings[] = array('item' => 'note',
+                                        'itemid' => $note["id"],
+                                        'warningcode' => 'savedfailed',
+                                        'message' => 'Note could not be modified');
+                }
+            } else {
+                $warnings[] = array('item' => 'note',
+                                    'itemid' => $note["id"],
+                                    'warningcode' => 'badid',
+                                    'message' => 'Note does not exist');
+            }
+        }
+        return $warnings;
+    }
+
+    /**
+     * Returns description of update_notes result value.
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.5
+     */
+    public static function update_notes_returns() {
+        return new external_warnings('item is always \'note\'',
+                            'When errorcode is savedfailed the note could not be modified.' .
+                            'When errorcode is badparam, an incorrect parameter was provided.' .
+                            'When errorcode is badid, the note does not exist',
+                            'errorcode can be badparam (incorrect parameter), savedfailed (could not be modified), or badid (note does not exist)');
+    }
+
+    /**
+     * Returns description of method parameters
+     *
+     * @return external_function_parameters
+     * @since Moodle 2.9
+     */
+    public static function get_course_notes_parameters() {
+        return new external_function_parameters(
+            array(
+                'courseid' => new external_value(PARAM_INT, 'course id, 0 for SITE'),
+                'userid'   => new external_value(PARAM_INT, 'user id', VALUE_DEFAULT, 0),
+            )
+        );
+    }
+
+    /**
+     * Create a notes list
+     *
+     * @param int $courseid ID of the Course
+     * @param stdClass $context context object
+     * @param int $userid ID of the User
+     * @param int $state
+     * @param int $author
+     * @return array of notes
+     * @since Moodle 2.9
+     */
+    protected static function create_note_list($courseid, $context, $userid, $state, $author = 0) {
+        $results = [];
+        $notes = note_list($courseid, $userid, $state, $author);
+        foreach ($notes as $key => $note) {
+            $note = (array)$note;
+            [$note['content'], $note['format']] = util::format_text(
+                $note['content'],
+                $note['format'],
+                $context->id,
+                '',
+                '',
+                0
+            );
+            $results[$key] = $note;
+        }
+        return $results;
+    }
+
+    /**
+     * Get a list of course notes
+     *
+     * @param int $courseid ID of the Course
+     * @param int $userid ID of the User
+     * @return array of site, course and personal notes and warnings
+     * @since Moodle 2.9
+     * @throws moodle_exception
+     */
+    public static function get_course_notes($courseid, $userid = 0) {
+        global $CFG, $USER;
+
+        if (empty($CFG->enablenotes)) {
+            throw new moodle_exception('notesdisabled', 'notes');
+        }
+
+        $warnings = array();
+        $arrayparams = array(
+            'courseid' => $courseid,
+            'userid'   => $userid,
+        );
+        $params = self::validate_parameters(self::get_course_notes_parameters(), $arrayparams);
+
+        if (empty($params['courseid'])) {
+            $params['courseid'] = SITEID;
+        }
+        $user = null;
+        if (!empty($params['userid'])) {
+            $user = core_user::get_user($params['userid'], '*', MUST_EXIST);
+            core_user::require_active_user($user);
+        }
+
+        $course = get_course($params['courseid']);
+
+        $systemcontext = context_system::instance();
+        $canmanagesystemnotes = has_capability('moodle/notes:manage', $systemcontext);
+
+        if ($course->id == SITEID) {
+            $context = $systemcontext;
+            $canmanagecoursenotes = $canmanagesystemnotes;
+        } else {
+            $context = context_course::instance($course->id);
+            $canmanagecoursenotes = has_capability('moodle/notes:manage', $context);
+        }
+        self::validate_context($context);
+
+        $sitenotes = array();
+        $coursenotes = array();
+        $personalnotes = array();
+
+        if ($course->id != SITEID) {
+
+            require_capability('moodle/notes:view', $context);
+            $sitenotes = self::create_note_list(0, $systemcontext, $params['userid'], NOTES_STATE_SITE);
+            $coursenotes = self::create_note_list($course->id, $context, $params['userid'], NOTES_STATE_PUBLIC);
+            $personalnotes = self::create_note_list($course->id, $context, $params['userid'], NOTES_STATE_DRAFT,
+                                                        $USER->id);
+        } else {
+            if (has_capability('moodle/notes:view', $context)) {
+                $sitenotes = self::create_note_list(0, $context, $params['userid'], NOTES_STATE_SITE);
+            }
+            // It returns notes only for a specific user!
+            if (!empty($user)) {
+                $usercourses = enrol_get_users_courses($user->id, true);
+                foreach ($usercourses as $c) {
+                    // All notes at course level, only if we have capability on every course.
+                    if (has_capability('moodle/notes:view', context_course::instance($c->id))) {
+                        $coursenotes += self::create_note_list($c->id, $context, $params['userid'], NOTES_STATE_PUBLIC);
+                    }
+                }
+            }
+        }
+
+        $results = array(
+            'sitenotes'     => $sitenotes,
+            'coursenotes'   => $coursenotes,
+            'personalnotes' => $personalnotes,
+            'canmanagesystemnotes' => $canmanagesystemnotes,
+            'canmanagecoursenotes' => $canmanagecoursenotes,
+            'warnings'      => $warnings
+        );
+        return $results;
+
+    }
+
+    /**
+     * Returns array of note structure
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.9
+     */
+    protected static function get_note_structure() {
+        return array(
+                     'id'           => new external_value(PARAM_INT, 'id of this note'),
+                     'courseid'     => new external_value(PARAM_INT, 'id of the course'),
+                     'userid'       => new external_value(PARAM_INT, 'user id'),
+                     'content'      => new external_value(PARAM_RAW, 'the content text formated'),
+                     'format'       => new external_format_value('content'),
+                     'created'      => new external_value(PARAM_INT, 'time created (timestamp)'),
+                     'lastmodified' => new external_value(PARAM_INT, 'time of last modification (timestamp)'),
+                     'usermodified' => new external_value(PARAM_INT, 'user id of the creator of this note'),
+                     'publishstate' => new external_value(PARAM_ALPHA, "state of the note (i.e. draft, public, site) ")
+        );
+    }
+
+    /**
+     * Returns description of method result value
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.9
+     */
+    public static function get_course_notes_returns() {
+        return new external_single_structure(
+            array(
+                'sitenotes' => new external_multiple_structure(
+                    new external_single_structure(self::get_note_structure() , ''), 'site notes', VALUE_OPTIONAL
+                ),
+                'coursenotes' => new external_multiple_structure(
+                    new external_single_structure(self::get_note_structure() , ''), 'couse notes', VALUE_OPTIONAL
+                ),
+                'personalnotes' => new external_multiple_structure(
+                    new external_single_structure(self::get_note_structure() , ''), 'personal notes', VALUE_OPTIONAL
+                ),
+                'canmanagesystemnotes' => new external_value(PARAM_BOOL, 'Whether the user can manage notes at system level.',
+                    VALUE_OPTIONAL),
+                'canmanagecoursenotes' => new external_value(PARAM_BOOL, 'Whether the user can manage notes at the given course.',
+                    VALUE_OPTIONAL),
+                'warnings' => new external_warnings()
+            ), 'notes'
+        );
+    }
+
+    /**
+     * Returns description of method parameters
+     *
+     * @return external_function_parameters
+     * @since Moodle 2.9
+     */
+    public static function view_notes_parameters() {
+        return new external_function_parameters(
+            array(
+                'courseid' => new external_value(PARAM_INT, 'course id, 0 for notes at system level'),
+                'userid' => new external_value(PARAM_INT, 'user id, 0 means view all the user notes', VALUE_DEFAULT, 0)
+            )
+        );
+    }
+
+    /**
+     * Simulates the web interface view of notes/index.php: trigger events
+     *
+     * @param int $courseid id of the course
+     * @param int $userid id of the user
+     * @return array of warnings and status result
+     * @since Moodle 2.9
+     * @throws moodle_exception
+     */
+    public static function view_notes($courseid, $userid = 0) {
+        global $CFG;
+        require_once($CFG->dirroot . "/notes/lib.php");
+
+        if (empty($CFG->enablenotes)) {
+            throw new moodle_exception('notesdisabled', 'notes');
+        }
+
+        $warnings = array();
+        $arrayparams = array(
+            'courseid' => $courseid,
+            'userid' => $userid
+        );
+        $params = self::validate_parameters(self::view_notes_parameters(), $arrayparams);
+
+        if (empty($params['courseid'])) {
+            $params['courseid'] = SITEID;
+        }
+
+        $course = get_course($params['courseid']);
+
+        if ($course->id == SITEID) {
+            $context = context_system::instance();
+        } else {
+            $context = context_course::instance($course->id);
+        }
+
+        // First of all, validate the context before do further permission checks.
+        self::validate_context($context);
+        require_capability('moodle/notes:view', $context);
+
+        if (!empty($params['userid'])) {
+            $user = core_user::get_user($params['userid'], '*', MUST_EXIST);
+            core_user::require_active_user($user);
+
+            if ($course->id != SITEID and !can_access_course($course, $user, '', true)) {
+                throw new moodle_exception('notenrolledprofile');
+            }
+        }
+
+        note_view($context, $params['userid']);
+
+        $result = array();
+        $result['status'] = true;
+        $result['warnings'] = $warnings;
+        return $result;
+
+    }
+
+    /**
+     * Returns description of method result value
+     *
+     * @return \core_external\external_description
+     * @since Moodle 2.9
+     */
+    public static function view_notes_returns() {
+        return new external_single_structure(
+            array(
+                'status' => new external_value(PARAM_BOOL, 'status: true if success'),
+                'warnings' => new external_warnings()
+            )
+        );
+    }
+
 }

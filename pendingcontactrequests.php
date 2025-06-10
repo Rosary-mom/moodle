@@ -15,15 +15,19 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version details
+ * This is a placeholder file for a legacy implementation.
  *
- * @package   media_youtube
- * @copyright 2016 Marina Glancy
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package    core
+ * @copyright  2019 Ryan Wyllie <ryan@moodle.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
+// Disable moodle specific debug messages since we're just redirecting.
+define('NO_DEBUG_DISPLAY', true);
+require('../config.php');
 
-$plugin->version   = 2025041400;      // The current plugin version (Date: YYYYMMDDXX).
-$plugin->requires  = 2025040800;      // Requires this Moodle version.
-$plugin->component = 'media_youtube'; // Full name of the plugin (used for diagnostics).
+require_login(null, false);
+
+// We have a bunch of old notifications (both internal and external, e.g. email) that
+// reference this URL which means we can't remove it so let's just redirect.
+redirect("{$CFG->wwwroot}/message/index.php?view=contactrequests");

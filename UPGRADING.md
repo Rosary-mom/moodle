@@ -1,25 +1,45 @@
-# core_ai (subsystem) Upgrade notes
+# core_cache (subsystem) Upgrade notes
 
-## 5.0
+## 4.5
 
 ### Added
 
-- - A new hook, `\core_ai\hook\after_ai_action_settings_form_hook`, has been introduced. It will allows AI provider plugins to add additional form elements for action settings configuration.
+- The following classes have been renamed and now support autoloading.
 
-  For more information see [MDL-82980](https://tracker.moodle.org/browse/MDL-82980)
-- - AI provider plugins that want to implement `pre-defined models` and display additional settings for models must now extend the `\core_ai\aimodel\base` class.
+  Existing classes are currently unaffected.
 
-  For more information see [MDL-82980](https://tracker.moodle.org/browse/MDL-82980)
+  | Old class name                     | New class name                                     |
+  | ---                                | ---                                                |
+  | `\cache_definition`                | `\core_cache\definition`                           |
+  | `\cache_request`                   | `\core_cache\request_cache`                        |
+  | `\cache_session`                   | `\core_cache\session_cache`                        |
+  | `\cache_cached_object`             | `\core_cache\cached_object`                        |
+  | `\cache_config`                    | `\core_cache\config`                               |
+  | `\cache_config_writer`             | `\core_cache\config_writer`                        |
+  | `\cache_config_disabled`           | `\core_cache\disabled_config`                      |
+  | `\cache_disabled`                  | `\core_cache\disabled_cache`                       |
+  | `\config_writer`                   | `\core_cache\config_writer`                        |
+  | `\cache_data_source`               | `\core_cache\data_source_interface`                |
+  | `\cache_data_source_versionable`   | `\core_cache\versionable_data_source_interface`    |
+  | `\cache_exception`                 | `\core_cache\exception/cache_exception`            |
+  | `\cache_factory`                   | `\core_cache\factory`                              |
+  | `\cache_factory_disabled`          | `\core_cache\disabled_factory`                     |
+  | `\cache_helper`                    | `\core_cache\helper`                               |
+  | `\cache_is_key_aware`              | `\core_cache\key_aware_cache_interface`            |
+  | `\cache_is_lockable`               | `\core_cache\lockable_cache_interface`             |
+  | `\cache_is_searchable`             | `\core_cache\searchable_cache_interface`           |
+  | `\cache_is_configurable`           | `\core_cache\configurable_cache_interface`         |
+  | `\cache_loader`                    | `\core_cache\loader_interface`                     |
+  | `\cache_loader_with_locking`       | `\core_cache\loader_with_locking_interface`        |
+  | `\cache_lock_interface`            | `\core_cache\cache_lock_interface`                 |
+  | `\cache_store`                     | `\core_cache\store`                                |
+  | `\cache_store_interface`           | `\core_cache\store_interface`                      |
+  | `\cache_ttl_wrapper`               | `\core_cache\ttl_wrapper`                          |
+  | `\cacheable_object`                | `\core_cache\cacheable_object_interface`           |
+  | `\cacheable_object_array`          | `\core_cache\cacheable_object_array`               |
+  | `\cache_definition_mappings_form`  | `\core_cache\form/cache_definition_mappings_form`  |
+  | `\cache_definition_sharing_form`   | `\core_cache\form/cache_definition_sharing_form`   |
+  | `\cache_lock_form`                 | `\core_cache\form/cache_lock_form`                 |
+  | `\cache_mode_mappings_form`        | `\core_cache\form/cache_mode_mappings_form`        |
 
-### Changed
-
-- - The `\core_ai\form\action_settings_form` class has been updated to automatically include action buttons such as Save and Cancel.
-  - AI provider plugins should update their form classes by removing the `$this->add_action_buttons();` call, as it is no longer required.
-
-  For more information see [MDL-82980](https://tracker.moodle.org/browse/MDL-82980)
-
-### Deprecated
-
-- The ai_provider_management_table has been refactored to inherit from flexible_table instead of plugin_management_table. As a result the methods get_plugintype and get_action_url are now unused and have been deprecated in the class.
-
-  For more information see [MDL-82922](https://tracker.moodle.org/browse/MDL-82922)
+  For more information see [MDL-82158](https://tracker.moodle.org/browse/MDL-82158)

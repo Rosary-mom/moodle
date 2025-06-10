@@ -15,51 +15,29 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Communication and its plugins settings.
+ * Strings for component 'communication', language 'en'.
  *
- * @package    core
- * @subpackage communication
- * @copyright  2023 Huong Nguyen <huongnv13@gmail.com>
+ * @package    core_communication
+ * @copyright  2022 Huong Nguyen <huongnv13@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once($CFG->libdir . '/adminlib.php');
-
-$action = required_param('action', PARAM_ALPHANUMEXT);
-$name = required_param('name', PARAM_PLUGIN);
-
-$syscontext = context_system::instance();
-$PAGE->set_url('/admin/communication.php');
-$PAGE->set_context($syscontext);
-
-require_admin();
-require_sesskey();
-
-$return = new moodle_url('/admin/settings.php', ['section' => 'managecommunicationproviders']);
-
-$plugins = core_plugin_manager::instance()->get_plugins_of_type('communication');
-$sortorder = array_flip(array_keys($plugins));
-
-if (!isset($plugins[$name])) {
-    throw new moodle_exception('communicationprovidernotfound', 'core_communication', $return, $name);
-}
-
-$plugintypename = $plugins[$name]->type . '_' . $plugins[$name]->name;
-
-switch ($action) {
-    case 'disable':
-        if ($plugins[$name]->is_enabled()) {
-            $class = core_plugin_manager::resolve_plugininfo_class('communication');
-            $class::enable_plugin($name, false);
-        }
-        break;
-    case 'enable':
-        if (!$plugins[$name]->is_enabled()) {
-            $class = core_plugin_manager::resolve_plugininfo_class('communication');
-            $class::enable_plugin($name, true);
-        }
-        break;
-}
-
-redirect($return);
+$string['communication'] = 'Communication';
+$string['communicationdisabled'] = 'Communication is disabled.';
+$string['communicationprovidernotfound'] = 'The \'{$a}\' communication provider doesn\'t exist or is not recognised.';
+$string['communicationroomname'] = 'Room name';
+$string['communicationroomnameinfo'] = 'If the field is left blank, the course name is used as the room name.';
+$string['communicationroompending'] = 'Your {$a} room will be ready soon.';
+$string['communicationroomready'] = 'Your {$a} room is ready.';
+$string['communicationgrouproomnameformat'] = '{$a->groupname} ({$a->baseroomname})';
+$string['managecommunicationproviders'] = 'Manage communication providers';
+$string['nocommunicationinstance'] = 'No communication instance found.';
+$string['nocommunicationprovider'] = 'No communication provider found.';
+$string['nocommunicationselected'] = 'None';
+$string['privacy:metadata:communication_user'] = 'The communication user table stores the user ID and communication ID for communication provider mapping.';
+$string['privacy:metadata:communication_user:commid'] = 'The communication ID for user mapping';
+$string['privacy:metadata:communication_user:userid'] = 'The user ID for communication provider mapping for users';
+$string['privacy:metadata:communication_user:synced'] = 'The user is synced with the provider or not';
+$string['selectcommunicationprovider'] = 'Provider';
+$string['selectcommunicationprovider_help'] = 'The tool available for chat and related communication methods.';
+$string['synchroniseproviders'] = 'Synchronise communication providers';

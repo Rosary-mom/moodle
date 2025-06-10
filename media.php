@@ -15,59 +15,24 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Enrol config manipulation script.
- *
- * @package    core
+ * Language strings for media embedding.
+ * @package core
  * @subpackage media
- * @copyright  2016 Marina Glancy
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
+ * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once("{$CFG->libdir}/adminlib.php");
+$string['audioextensions'] = 'Audio: {$a}';
+$string['defaultwidth'] = 'Default width';
+$string['defaultwidthdesc'] = 'Media player width if a width is not specified and the actual media file width cannot be determined by the player.';
+$string['defaultheight'] = 'Default height';
+$string['defaultheightdesc'] = 'Media player height if a height is not specified and the actual media file height cannot be determined by the player.';
+$string['extensions'] = 'Extensions: {$a}';
+$string['managemediaplayers'] = 'Manage media players';
+$string['mediaformats'] = 'Available players';
+$string['mediaformats_desc'] = 'When players are enabled, media files can be embedded using the multimedia plugins filter (if enabled) or using a file or URL resource. When not enabled, these formats are not embedded and users can download or follow links to these resources.
 
-$action = required_param('action', PARAM_ALPHANUMEXT);
-$plugin = required_param('plugin', PARAM_PLUGIN);
-
-$PAGE->set_url('/admin/media.php');
-$PAGE->set_context(context_system::instance());
-
-require_admin();
-require_sesskey();
-
-$return = new moodle_url('/admin/settings.php', [
-    'section' => 'managemediaplayers',
-]);
-
-$displayname = get_string('pluginname', "media_{$plugin}");
-switch ($action) {
-    case 'disable':
-        $class = \core_plugin_manager::resolve_plugininfo_class('media');
-        if ($class::enable_plugin($plugin, false)) {
-            \core\notification::add(
-                get_string('plugin_disabled', 'core_admin', $displayname),
-                \core\notification::SUCCESS
-            );
-        }
-        break;
-
-    case 'enable':
-        $class = \core_plugin_manager::resolve_plugininfo_class('media');
-        if ($class::enable_plugin($plugin, true)) {
-            \core\notification::add(
-                get_string('plugin_enabled', 'core_admin', $displayname),
-                \core\notification::SUCCESS
-            );
-        }
-        break;
-
-    case 'up':
-        $class::change_plugin_order($plugin, $class::MOVE_UP);
-        break;
-
-    case 'down':
-        $class::change_plugin_order($plugin, $class::MOVE_DOWN);
-        break;
-}
-
-redirect($return);
+Where two players support the same format, enabling both increases compatibility across different devices such as mobile phones. It is possible to increase compatibility further by providing multiple files in different formats for a single audio or video clip.';
+$string['privacy:metadata'] = 'Media embedding does not store any personal data.';
+$string['supports'] = 'Supports';
+$string['videoextensions'] = 'Video: {$a}';

@@ -14,253 +14,137 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-
 /**
- * The main group management user interface.
+ * Displays IP address on map.
  *
- * @copyright 2006 The Open University, N.D.Freear AT open.ac.uk, J.White AT open.ac.uk
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @package   core_group
+ * This script is not compatible with IPv6.
+ *
+ * @package    core_iplookup
+ * @copyright  2008 Petr Skoda (http://skodak.org)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-require_once('../config.php');
+
+require('../config.php');
 require_once('lib.php');
 
-$courseid = required_param('id', PARAM_INT);
-$groupid  = optional_param('group', false, PARAM_INT);
-$userid   = optional_param('user', false, PARAM_INT);
-$action = optional_param('action', false, PARAM_TEXT);
+require_login(0, false);
+if (isguestuser()) {
+    // Guest users cannot perform lookups.
+    throw new require_login_exception('Guests are not allowed here.');
+}
 
-// Support either single group= parameter, or array groups[].
-if ($groupid) {
-    $groupids = array($groupid);
+$ip = optional_param('ip', getremoteaddr(), PARAM_RAW);
+$user = optional_param('user', 0, PARAM_INT);
+$width = optional_param('width', 0, PARAM_INT);
+$height = optional_param('height', 0, PARAM_INT);
+$ispopup = optional_param('popup', 0, PARAM_INT);
+
+if (isset($CFG->iplookup)) {
+    // Clean up of old settings.
+    set_config('iplookup', NULL);
+}
+
+$urlparams = [
+    'id' => $ip,
+    'user' => $user,
+];
+
+// Params width and height are set, we assume to have a popup.
+if ($width > 0 && $height > 0) {
+    $urlparams['width'] = $width;
+    $urlparams['height'] = $height;
+    $ispopup = 1;
+} else if ($ispopup === 1) {  // Param popup was set, then we know that we want a popup.
+    $urlparams['ispopup'] = 1;
+}
+// Set the page layout accordingly.
+if ($ispopup) {
+    $PAGE->set_pagelayout('popup');
 } else {
-    $groupids = optional_param_array('groups', array(), PARAM_INT);
+    $PAGE->set_pagelayout('standard');
 }
-$singlegroup = (count($groupids) == 1);
 
-$returnurl = $CFG->wwwroot.'/group/index.php?id='.$courseid;
+$PAGE->set_url('/iplookup/index.php', $urlparams);
+$PAGE->set_context(context_system::instance());
 
-// Get the course information so we can print the header and
-// check the course id is valid.
-$course = $DB->get_record('course', array('id' => $courseid), '*', MUST_EXIST);
+$info = array($ip);
+$note = array();
 
-$url = new moodle_url('/group/index.php', array('id' => $courseid));
-navigation_node::override_active_url($url);
-if ($userid) {
-    $url->param('user', $userid);
+if (cleanremoteaddr($ip) === false) {
+    throw new \moodle_exception('invalidipformat', 'error');
 }
-if ($groupid) {
-    $url->param('group', $groupid);
+
+if (!ip_is_public($ip)) {
+    throw new \moodle_exception('iplookupprivate', 'error');
 }
-$PAGE->set_url($url);
 
-// Make sure that the user has permissions to manage groups.
-require_login($course);
+$info = iplookup_find_location($ip);
 
-$context = context_course::instance($course->id);
-require_capability('moodle/course:managegroups', $context);
+if ($info['error']) {
+    // Can not display.
+    notice($info['error']);
+}
 
-$PAGE->requires->js('/group/clientlib.js', true);
-$PAGE->requires->js('/group/module.js', true);
-
-// Check for multiple/no group errors.
-if (!$singlegroup) {
-    switch($action) {
-        case 'ajax_getmembersingroup':
-        case 'showgroupsettingsform':
-        case 'showaddmembersform':
-        case 'updatemembers':
-            throw new \moodle_exception('errorselectone', 'group', $returnurl);
+if ($user) {
+    if ($user = $DB->get_record('user', array('id'=>$user, 'deleted'=>0))) {
+        // note: better not show full names to everybody
+        if (has_capability('moodle/user:viewdetails', context_user::instance($user->id))) {
+            array_unshift($info['title'], fullname($user));
+        }
     }
 }
 
-switch ($action) {
-    case false: // OK, display form.
-        break;
-
-    case 'ajax_getmembersingroup':
-        $roles = array();
-
-        $userfieldsapi = \core_user\fields::for_identity($context)->with_userpic();
-        [
-            'selects' => $userfieldsselects,
-            'joins' => $userfieldsjoin,
-            'params' => $userfieldsparams
-        ] = (array)$userfieldsapi->get_sql('u', true, '', '', false);
-        $extrafields = $userfieldsapi->get_required_fields([\core_user\fields::PURPOSE_IDENTITY]);
-        if ($groupmemberroles = groups_get_members_by_role($groupids[0], $courseid,
-                'u.id, ' . $userfieldsselects, null, '', $userfieldsparams, $userfieldsjoin)) {
-
-            $viewfullnames = has_capability('moodle/site:viewfullnames', $context);
-
-            foreach ($groupmemberroles as $roleid => $roledata) {
-                $shortroledata = new stdClass();
-                $shortroledata->name = html_entity_decode($roledata->name, ENT_QUOTES, 'UTF-8');
-                $shortroledata->users = array();
-                foreach ($roledata->users as $member) {
-                    $shortmember = new stdClass();
-                    $shortmember->id = $member->id;
-                    $shortmember->name = fullname($member, $viewfullnames);
-                    if ($extrafields) {
-                        $extrafieldsdisplay = [];
-                        foreach ($extrafields as $field) {
-                            // No escaping here, handled client side in response to AJAX request.
-                            $extrafieldsdisplay[] = $member->{$field};
-                        }
-                        $shortmember->name .= ' (' . implode(', ', $extrafieldsdisplay) . ')';
-                    }
-
-                    $shortroledata->users[] = $shortmember;
-                }
-                $roles[] = $shortroledata;
-            }
-        }
-        echo json_encode($roles);
-        die;  // Client side JavaScript takes it from here.
-
-    case 'deletegroup':
-        if (count($groupids) == 0) {
-            throw new \moodle_exception('errorselectsome', 'group', $returnurl);
-        }
-        $groupidlist = implode(',', $groupids);
-        redirect(new moodle_url('/group/delete.php', array('courseid' => $courseid, 'groups' => $groupidlist)));
-        break;
-
-    case 'showcreateorphangroupform':
-        redirect(new moodle_url('/group/group.php', array('courseid' => $courseid)));
-        break;
-
-    case 'showautocreategroupsform':
-        redirect(new moodle_url('/group/autogroup.php', array('courseid' => $courseid)));
-        break;
-
-    case 'showimportgroups':
-        redirect(new moodle_url('/group/import.php', array('id' => $courseid)));
-        break;
-
-    case 'showgroupsettingsform':
-        redirect(new moodle_url('/group/group.php', array('courseid' => $courseid, 'id' => $groupids[0])));
-        break;
-
-    case 'updategroups': // Currently reloading.
-        break;
-
-    case 'removemembers':
-        break;
-
-    case 'showaddmembersform':
-        redirect(new moodle_url('/group/members.php', array('group' => $groupids[0])));
-        break;
-
-    case 'updatemembers': // Currently reloading.
-        break;
-
-    case 'enablemessaging':
-        set_groups_messaging($groupids, true);
-        redirect($returnurl, get_string('messagingenabled', 'group', count($groupids)), null,
-            \core\output\notification::NOTIFY_SUCCESS);
-        break;
-
-    case 'disablemessaging':
-        set_groups_messaging($groupids, false);
-        redirect($returnurl, get_string('messagingdisabled', 'group', count($groupids)), null,
-            \core\output\notification::NOTIFY_SUCCESS);
-        break;
-
-    default: // ERROR.
-        throw new \moodle_exception('unknowaction', '', $returnurl);
-        break;
+$title = $ip;
+foreach ($info['title'] as $component) {
+    if (!empty(trim($component))) {
+        $title .= ' - ' . $component;
+    }
 }
-
-// Print the page and form.
-$strgroups = get_string('groups');
-$strparticipants = get_string('participants');
-
-// Print header.
-$PAGE->set_title($strgroups);
-$PAGE->set_heading($course->fullname);
-$PAGE->set_pagelayout('standard');
+$PAGE->set_title(get_string('iplookup', 'admin').': '.$title);
+$PAGE->set_heading($title);
 echo $OUTPUT->header();
 
-echo $OUTPUT->render_participants_tertiary_nav($course);
-
-$groups = groups_get_all_groups($courseid);
-$selectedname = null;
-$preventgroupremoval = array();
-
-// Get list of groups to render.
-$groupoptions = array();
-if ($groups) {
-    foreach ($groups as $group) {
-        $selected = false;
-        $usercount = $DB->count_records('groups_members', array('groupid' => $group->id));
-        $groupname = format_string($group->name, true, ['context' => $context, 'escape' => false]) . ' (' . $usercount . ')';
-        if (in_array($group->id, $groupids)) {
-            $selected = true;
-            if ($singlegroup) {
-                // Only keep selected name if there is one group selected.
-                $selectedname = $groupname;
-            }
-        }
-        if (!empty($group->idnumber) && !has_capability('moodle/course:changeidnumber', $context)) {
-            $preventgroupremoval[$group->id] = true;
-        }
-
-        $groupoptions[] = (object) [
-            'value' => $group->id,
-            'selected' => $selected,
-            'text' => s($groupname)
-        ];
-    }
+// The map dimension is here as big as the popup/page is, so max with and at least 360px height.
+if ($ispopup) {
+    echo '<h1 class="iplookup h2">' . htmlspecialchars($title, ENT_QUOTES | ENT_HTML401 | ENT_SUBSTITUTE) . '</h1>';
+    $mapdim = 'width: '
+        . (($width > 0) ? $width . 'px' : '100%')
+        . '; height: '
+        . (($height > 0) ? $height . 'px;' : '100%; min-height:360px;');
+} else {
+    $mapdim = 'width:100%; height:100%;min-height:360px';
 }
 
-// Get list of group members to render if there is a single selected group.
-$members = array();
-if ($singlegroup) {
-    $userfieldsapi = \core_user\fields::for_identity($context)->with_userpic();
-    [
-        'selects' => $userfieldsselects,
-        'joins' => $userfieldsjoin,
-        'params' => $userfieldsparams
-    ] = (array)$userfieldsapi->get_sql('u', true, '', '', false);
-    $extrafields = $userfieldsapi->get_required_fields([\core_user\fields::PURPOSE_IDENTITY]);
-    if ($groupmemberroles = groups_get_members_by_role(reset($groupids), $courseid,
-            'u.id, ' . $userfieldsselects, null, '', $userfieldsparams, $userfieldsjoin)) {
+if (empty($CFG->googlemapkey3)) { // No Google API key is set, we use OSM.
 
-        $viewfullnames = has_capability('moodle/site:viewfullnames', $context);
+    // Have a fixed zoom factor to calculate corners of the map.
+    $fkt = 4;
+    $bboxleft = $info['longitude'] - $fkt;
+    $bboxbottom = $info['latitude'] - $fkt;
+    $bboxright = $info['longitude'] + $fkt;
+    $bboxtop = $info['latitude'] + $fkt;
 
-        foreach ($groupmemberroles as $roleid => $roledata) {
-            $users = array();
-            foreach ($roledata->users as $member) {
-                $shortmember = new stdClass();
-                $shortmember->value = $member->id;
-                $shortmember->text = fullname($member, $viewfullnames);
-                if ($extrafields) {
-                    $extrafieldsdisplay = [];
-                    foreach ($extrafields as $field) {
-                        $extrafieldsdisplay[] = s($member->{$field});
-                    }
-                    $shortmember->text .= ' (' . implode(', ', $extrafieldsdisplay) . ')';
-                }
+    echo '<div id="map" style="' . $mapdim . '">'
+        . '<object data="https://www.openstreetmap.org/export/embed.html?bbox='
+        . $bboxleft . '%2C' . $bboxbottom . '%2C' . $bboxright . '%2C' . $bboxtop
+        . '&layer=mapnik&marker=' . $info['latitude']  . '%2C' . $info['longitude'] . '" style="' . $mapdim . '"></object>'
+        . '</div>'
+        . '<div id="note">' . $info['note'] . '</div>';
 
-                $users[] = $shortmember;
-            }
 
-            $members[] = (object)[
-                'role' => html_entity_decode($roledata->name, ENT_QUOTES, 'UTF-8'),
-                'rolemembers' => $users
-            ];
-        }
-    }
+} else { // Google API key is set, then use Google Maps.
+    $PAGE->requires->js(new moodle_url(
+        'https://maps.googleapis.com/maps/api/js',
+        [
+            'key' => $CFG->googlemapkey3,
+            'sensor' => 'false'
+        ]
+    ));
+    $module = array('name'=>'core_iplookup', 'fullpath'=>'/iplookup/module.js');
+    $PAGE->requires->js_init_call('M.core_iplookup.init3', [$info['latitude'], $info['longitude'], $ip], true, $module);
+
+    echo '<div id="map" style="' . $mapdim . '"></div>';
+    echo '<div id="note">'.$info['note'].'</div>';
 }
-
-$disableaddedit = !$singlegroup;
-$disabledelete = !empty($groupids);
-$caneditmessaging = \core_message\api::can_create_group_conversation($USER->id, $context);
-
-$renderable = new \core_group\output\index_page($courseid, $groupoptions, $selectedname, $members, $disableaddedit, $disabledelete,
-        $preventgroupremoval, $caneditmessaging);
-$output = $PAGE->get_renderer('core_group');
-echo $output->render($renderable);
 
 echo $OUTPUT->footer();

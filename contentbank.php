@@ -15,73 +15,88 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Content bank and its plugins settings.
+ * Strings for component 'contentbank', language 'en'
  *
- * @package    core
- * @subpackage contentbank
+ * @package    core_contentbank
  * @copyright  2020 Amaia Anabitarte <amaia@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once('../config.php');
-require_once($CFG->libdir.'/adminlib.php');
-
-$action = required_param('action', PARAM_ALPHANUMEXT);
-$name   = required_param('name', PARAM_PLUGIN);
-
-$syscontext = context_system::instance();
-$PAGE->set_url('/admin/contentbank.php');
-$PAGE->set_context($syscontext);
-
-require_admin();
-require_sesskey();
-
-$return = new moodle_url('/admin/settings.php', array('section' => 'managecontentbanktypes'));
-
-$plugins = core_plugin_manager::instance()->get_plugins_of_type('contenttype');
-$sortorder = array_flip(array_keys($plugins));
-
-if (!isset($plugins[$name])) {
-    throw new \moodle_exception('contenttypenotfound', 'error', $return, $name);
-}
-
-switch ($action) {
-    case 'disable':
-        if ($plugins[$name]->is_enabled()) {
-            $class = \core_plugin_manager::resolve_plugininfo_class('contenttype');
-            $class::enable_plugin($name, false);
-        }
-        break;
-    case 'enable':
-        if (!$plugins[$name]->is_enabled()) {
-            $class = \core_plugin_manager::resolve_plugininfo_class('contenttype');
-            $class::enable_plugin($name, true);
-        }
-        break;
-    case 'up':
-        if ($sortorder[$name]) {
-            $currentindex = $sortorder[$name];
-            $seq = array_keys($plugins);
-            $seq[$currentindex] = $seq[$currentindex - 1];
-            $seq[$currentindex - 1] = $name;
-            set_config('contentbank_plugins_sortorder', implode(',', $seq));
-            core_plugin_manager::reset_caches();
-        }
-        break;
-    case 'down':
-        if ($sortorder[$name] < count($sortorder) - 1) {
-            $currentindex = $sortorder[$name];
-            $seq = array_keys($plugins);
-            $seq[$currentindex] = $seq[$currentindex + 1];
-            $seq[$currentindex + 1] = $name;
-            set_config('contentbank_plugins_sortorder', implode(',', $seq));
-            core_plugin_manager::reset_caches();
-        }
-        break;
-}
-$cache = cache::make('core', 'contentbank_enabled_extensions');
-$cache->purge();
-$cache = cache::make('core', 'contentbank_context_extensions');
-$cache->purge();
-
-redirect($return);
+$string['author'] = 'Author';
+$string['contentbank'] = 'Content bank';
+$string['choosecontext'] = 'Choose course or category...';
+$string['contentbankcustomfields'] = 'Content bank custom fields';
+$string['contentbankpreferences'] = 'Content bank preferences';
+$string['contentcopied'] = 'Content copied.';
+$string['contentdeleted'] = 'Content deleted.';
+$string['contentname'] = 'Content name';
+$string['contentnotdeleted'] = 'An error was encountered while trying to delete the content.';
+$string['contentnotrenamed'] = 'An error was encountered while trying to rename the content.';
+$string['contentrenamed'] = 'Content renamed.';
+$string['contentsmoved'] = 'Content bank contents moved to {$a}.';
+$string['contenttypenoaccess'] = 'You cannot view this {$a} instance.';
+$string['contenttypenoedit'] = 'You can not edit this content';
+$string['contentvisibilitychanged'] = 'Content is now {$a}.';
+$string['contentvisibilitynotset'] = 'An error was encountered while trying to set the content visibility.';
+$string['contentcreated'] = 'Content created.';
+$string['contentupdated'] = 'Content updated.';
+$string['contextnotallowed'] = 'You are not allowed to access the content bank in this context.';
+$string['copycontent'] = 'Copy content';
+$string['copyof'] = 'Copy of {$a}';
+$string['displayunlisted'] = 'Show unlisted content';
+$string['emptynamenotallowed'] = 'Empty name is not allowed';
+$string['eventcontentcreated'] = 'Content created';
+$string['eventcontentdeleted'] = 'Content deleted';
+$string['eventcontentreplaced'] = 'Content replaced with file';
+$string['eventcontentupdated'] = 'Content updated';
+$string['eventcontentuploaded'] = 'Content uploaded';
+$string['eventcontentviewed'] = 'Content viewed';
+$string['errordeletingcontentfromcategory'] = 'Error deleting content from category {$a}.';
+$string['errornofile'] = 'A compatible file is needed to create content.';
+$string['exit'] = 'Exit';
+$string['deletecontent'] = 'Delete content';
+$string['deletecontentconfirm'] = 'Are you sure you want to delete the content <em>\'{$a->name}\'</em> and all associated files? This action cannot be undone.';
+$string['deletecontentconfirmlinked'] = 'The content will only be deleted from the content bank. Any places which currently link to it will be automatically updated to use a copy of the content instead.';
+$string['displaydetails'] = 'Display content bank with file details';
+$string['displayicons'] = 'Display content bank with icons';
+$string['file'] = 'Upload content';
+$string['file_help'] = 'Files may be stored in the content bank for use in courses. Only files used by content types enabled on the site may be uploaded.';
+$string['itemsfound'] = '{$a} items found';
+$string['lastmodified'] = 'Last modified';
+$string['more'] = 'More';
+$string['name'] = 'Content';
+$string['nocontentavailable'] = 'No content available';
+$string['nocontenttypes'] = 'No content types available';
+$string['notavailable'] = 'Sorry, this content is not available.';
+$string['nopermissiontocopy'] = 'You do not have permission to copy content.';
+$string['nopermissiontodelete'] = 'You do not have permission to delete content.';
+$string['nopermissiontomanage'] = 'You do not have permission to manage content.';
+$string['notvalidpackage'] = 'Sorry, this file is not valid.';
+$string['privacy:metadata:content:contenttype'] = 'The contenttype plugin of the content in the content bank.';
+$string['privacy:metadata:content:name'] = 'Name of the content in the content bank.';
+$string['privacy:metadata:content:timecreated'] = 'The time when the content was created.';
+$string['privacy:metadata:content:timemodified'] = 'The time when the content was modified.';
+$string['privacy:metadata:content:usercreated'] = 'The user has created the content.';
+$string['privacy:metadata:content:usermodified'] = 'The last user who modified the content.';
+$string['privacy:metadata:contentbankcontent'] = 'Stores the content of the content bank.';
+$string['privacy:metadata:userid'] = 'The ID of the user creating or modifying content bank content.';
+$string['privacy:request:preference:set'] = 'The value of the setting \'{$a->name}\' was \'{$a->value}\'';
+$string['rename'] = 'Rename';
+$string['renamecontent'] = 'Rename content';
+$string['replacecontent'] = 'Replace with file';
+$string['searchcontentbankbyname'] = 'Search for content by name';
+$string['size'] = 'Size';
+$string['timecreated'] = 'Time created';
+$string['type'] = 'Type';
+$string['unsupported'] = 'This content type is not supported.';
+$string['upload'] = 'Upload';
+$string['uses'] = 'Places linked';
+$string['visibilitychoicepublic'] = 'Public';
+$string['visibilitychoiceunlisted'] = 'Unlisted';
+$string['public'] = 'public';
+$string['unlisted'] = 'unlisted';
+$string['visibilitypref'] = 'Default content visibility';
+$string['visibilitypref_help'] = 'Content you create in the content bank will use this visibility setting by default.';
+$string['visibilitysetpublic'] = 'Make public';
+$string['visibilitysetunlisted'] = 'Make unlisted';
+$string['visibilitytitleunlisted'] = '{$a} (Unlisted)';

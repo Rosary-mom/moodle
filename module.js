@@ -1,42 +1,42 @@
-/*
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * Iplookup utility functions
+ *
+ * @package    core_iplookup
+ * @copyright  2008 Petr Skoda (http://skodak.org)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-M.core_group = {
-    hoveroverlay : null
-};
 
-M.core_group.init_index = function(Y, wwwroot, courseid) {
-    M.core_group.groupsCombo = new UpdatableGroupsCombo(wwwroot, courseid);
-    M.core_group.membersCombo = new UpdatableMembersCombo(wwwroot, courseid);
-};
+M.core_iplookup = {};
 
-M.core_group.groupslist = function(Y, preventgroupremoval) {
-    var actions = {
-        init : function() {
-            // We need to add check_deletable both on change for the groups, and then call it the first time the page loads
-            Y.one('#groups').on('change', this.check_deletable, this);
-            this.check_deletable();
-        },
-        check_deletable : function() {
-            // Ensure that if the 'preventremoval' attribute is set, the delete button is greyed out
-            var candelete = true;
-            var optionselected = false;
-            Y.one('#groups').get('options').each(function(option) {
-                if (option.get('selected')) {
-                    optionselected = true;
-                    if (option.getAttribute('value') in preventgroupremoval) {
-                        candelete = false;
-                    }
-                }
-            }, this);
-            var deletebutton = Y.one('#deletegroup');
-            if (candelete && optionselected) {
-                deletebutton.removeAttribute('disabled');
-            } else {
-                deletebutton.setAttribute('disabled', 'disabled');
-            }
-        }
-    }
-    actions.init();
+M.core_iplookup.init3 = function(Y, latitude, longitude, ip) {
+    var ipLatlng = new google.maps.LatLng(latitude, longitude);
+
+    var mapOptions = {
+        center: ipLatlng,
+        zoom: 6,
+        mapTypeId: google.maps.MapTypeId.ROADMAP
+    };
+
+    var map = new google.maps.Map(document.getElementById("map"), mapOptions);
+
+    var marker = new google.maps.Marker({
+        position: ipLatlng,
+        map: map,
+        title: ip
+    });
 };

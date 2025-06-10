@@ -15,203 +15,129 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Display user activity reports for a course
+ * Strings for component 'user', language 'en', branch 'MOODLE_20_STABLE'
  *
- * @copyright 1999 Martin Dougiamas  http://dougiamas.com
- * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @package course
+ * @package   core_user
+ * @copyright 2018 Adrian Greeve <adriangreeve.com>
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once("../config.php");
-require_once("lib.php");
-
-$id      = required_param('id',PARAM_INT);       // course id
-$user    = required_param('user',PARAM_INT);     // user id
-$mode    = optional_param('mode', "todaylogs", PARAM_ALPHA);
-
-$url = new moodle_url('/course/user.php', array('id'=>$id,'user'=>$user, 'mode'=>$mode));
-
-$course = $DB->get_record('course', array('id'=>$id), '*', MUST_EXIST);
-$user = $DB->get_record("user", array("id"=>$user, 'deleted'=>0), '*', MUST_EXIST);
-
-if ($mode === 'outline' or $mode === 'complete') {
-    $url = new moodle_url('/report/outline/user.php', array('id'=>$user->id, 'course'=>$course->id, 'mode'=>$mode));
-    redirect($url);
-}
-if ($mode === 'todaylogs' or $mode === 'alllogs') {
-    $logmode = ($mode === 'todaylogs') ? 'today' : 'all';
-    $url = new moodle_url('/report/log/user.php', array('id'=>$user->id, 'course'=>$course->id, 'mode'=>$logmode));
-    redirect($url);
-}
-if ($mode === 'stats') {
-    $url = new moodle_url('/report/stats/user.php', array('id'=>$user->id, 'course'=>$course->id));
-    redirect($url);
-}
-if ($mode === 'coursecompletions' or $mode === 'coursecompletion') {
-    $url = new moodle_url('/report/completion/user.php', array('id'=>$user->id, 'course'=>$course->id));
-    redirect($url);
-}
-
-$coursecontext   = context_course::instance($course->id);
-$personalcontext = context_user::instance($user->id);
-
-if ($id == SITEID) {
-    $PAGE->set_context($personalcontext);
-    $PAGE->set_heading(fullname($user));
-} else {
-    $PAGE->set_context($coursecontext);
-    $PAGE->set_secondary_active_tab('participants');
-    $PAGE->set_heading($course->fullname);
-}
-
-$PAGE->set_url('/course/user.php', array('id'=>$id, 'user'=>$user->id, 'mode'=>$mode));
-
-require_login();
-$PAGE->set_pagelayout('report');
-if (has_capability('moodle/user:viewuseractivitiesreport', $personalcontext) and !is_enrolled($coursecontext)) {
-    // do not require parents to be enrolled in courses ;-)
-    $PAGE->set_course($course);
-} else {
-    require_login($course);
-}
-
-if ($user->deleted) {
-    echo $OUTPUT->header();
-    echo $OUTPUT->heading(get_string('userdeleted'));
-    echo $OUTPUT->footer();
-    die;
-}
-
-// prepare list of allowed modes
-$myreports  = ($course->showreports and $USER->id == $user->id);
-$anyreport  = has_capability('moodle/user:viewuseractivitiesreport', $personalcontext);
-
-$modes = array();
-
-// Used for grade reports, it represents whether we should be viewing the report as ourselves, or as the targetted user.
-$viewasuser = false;
-
-if (has_capability('moodle/grade:viewall', $coursecontext)) {
-    //ok - can view all course grades
-    $modes[] = 'grade';
-
-} else if ($course->showgrades and $user->id == $USER->id and has_capability('moodle/grade:view', $coursecontext)) {
-    //ok - can view own grades
-    $modes[] = 'grade';
-
-} else if ($course->showgrades and has_capability('moodle/grade:viewall', $personalcontext)) {
-    // ok - can view grades of this user - parent most probably
-    $modes[] = 'grade';
-    $viewasuser = true;
-
-} else if ($course->showgrades and $anyreport) {
-    // ok - can view grades of this user - parent most probably
-    $modes[] = 'grade';
-    $viewasuser = true;
-}
-
-if (empty($modes)) {
-    require_capability('moodle/user:viewuseractivitiesreport', $personalcontext);
-}
-
-if (!in_array($mode, $modes)) {
-    // forbidden or non-existent mode
-    $mode = reset($modes);
-}
-
-$eventdata = array(
-    'context' => $coursecontext,
-    'relateduserid' => $user->id,
-    'other' => array('mode' => $mode),
-);
-$event = \core\event\course_user_report_viewed::create($eventdata);
-$event->trigger();
-
-$stractivityreport = get_string("activityreport");
-
-$PAGE->navigation->extend_for_user($user);
-$PAGE->navigation->set_userid_for_parent_checks($user->id); // see MDL-25805 for reasons and for full commit reference for reversal when fixed.
-$PAGE->set_title("$course->shortname: $stractivityreport ($mode)");
-
-switch ($mode) {
-    case "grade":
-        // Change the navigation to point to the my grade node (If we are a student).
-        if ($USER->id == $user->id) {
-            require_once($CFG->dirroot . '/user/lib.php');
-            // Get the correct 'Grades' url to point to.
-            $activeurl = user_mygrades_url();
-            $navbar = $PAGE->navbar->add(get_string('grades', 'grades'), $activeurl, navigation_node::TYPE_SETTING, null, 'grades');
-            $activenode = $navbar->add($course->shortname);
-            $activenode->make_active();
-            // Find the course node and collapse it.
-            $coursenode = $PAGE->navigation->find($course->id, navigation_node::TYPE_COURSE);
-            $coursenode->collapse = true;
-            $coursenode->make_inactive();
-
-            if (!preg_match('/^user\d{0,}$/', $activenode->key ?? '')) { // No user name found.
-                $userurl = new moodle_url('/user/view.php', array('id' => $user->id, 'course' => $course->id));
-                // Add the user name.
-                $usernode = $activenode->add(fullname($user), $userurl, navigation_node::TYPE_SETTING);
-                $usernode->add(get_string('grades'));
-            } else {
-                $url = new moodle_url('/course/user.php', array('id' => $id, 'user' => $user->id, 'mode' => $mode));
-                $reportnode = $activenode->add(get_string('pluginname', 'gradereport_user'), $url);
-            }
-        } else {
-            if ($course->id == SITEID) {
-                $activenode = $PAGE->navigation->find('user' . $user->id, null);
-            } else {
-                $currentcoursenode = $PAGE->navigation->find($course->id, navigation_node::TYPE_COURSE);
-                $activenode = $currentcoursenode->find_active_node();
-            }
-
-            // Check to see if the active node is a user name.
-            if (!preg_match('/^user\d{0,}$/', $activenode->key)) { // No user name found.
-                $userurl = new moodle_url('/user/view.php', array('id' => $user->id, 'course' => $course->id));
-                // Add the user name.
-                $PAGE->navbar->add(fullname($user), $userurl, navigation_node::TYPE_SETTING);
-            }
-            $PAGE->navbar->add(get_string('report'));
-            $gradeurl = new moodle_url('/course/user.php', array('id' => $id, 'user' => $user->id, 'mode' => $mode));
-            // Add the 'grades' node to the navbar.
-            $navbar = $PAGE->navbar->add(get_string('grades', 'grades'), $gradeurl, navigation_node::TYPE_SETTING);
-        }
-
-        echo $OUTPUT->header();
-
-        if ($course->id !== SITEID) {
-            $userheading = array(
-                'heading' => fullname($user, has_capability('moodle/site:viewfullnames', $PAGE->context)),
-                'user' => $user,
-                'usercontext' => $personalcontext,
-            );
-            echo $OUTPUT->context_header($userheading, 2);
-
-            echo $OUTPUT->heading(get_string('grades', 'moodle'), 2, 'main mt-4 mb-4');
-        }
-
-        if (empty($CFG->grade_profilereport) or !file_exists($CFG->dirroot.'/grade/report/'.$CFG->grade_profilereport.'/lib.php')) {
-            $CFG->grade_profilereport = 'user';
-        }
-        require_once $CFG->libdir.'/gradelib.php';
-        require_once $CFG->dirroot.'/grade/lib.php';
-        require_once $CFG->dirroot.'/grade/report/'.$CFG->grade_profilereport.'/lib.php';
-
-        // User must be able to view this grade report.
-        if (!$viewasuser) {
-            require_capability('gradereport/' . $CFG->grade_profilereport . ':view', $coursecontext);
-        }
-
-        $functionname = 'grade_report_'.$CFG->grade_profilereport.'_profilereport';
-        if (function_exists($functionname)) {
-            $functionname($course, $user, $viewasuser);
-        }
-        break;
-
-    default:
-        // It's unlikely to reach this piece of code, as the mode is never empty and it sets mode as grade in most of the cases.
-        // Display the page header to avoid breaking the navigation. A course/user.php review will be done in MDL-49939.
-        echo $OUTPUT->header();
-}
-
-echo $OUTPUT->footer();
+$string['countparticipantsfound'] = '{$a} participants found';
+$string['moodlenetprofile'] = 'MoodleNet profile ID';
+$string['moodlenetprofile_help'] = 'Your MoodleNet profile ID links your MoodleNet profile with this site.';
+$string['placeholdertype'] = 'Type...';
+$string['privacy:courserequestpath'] = 'Requested courses';
+$string['privacy:descriptionpath'] = 'Profile description';
+$string['privacy:devicespath'] = 'User devices';
+$string['privacy:draftfilespath'] = 'Draft files';
+$string['privacy:lastaccesspath'] = 'Last access to courses';
+$string['privacy:metadata:address'] = 'The address of the user.';
+$string['privacy:metadata:aim'] = 'The AIM identifier of the user';
+$string['privacy:metadata:alternatename'] = 'An alternative name for the user.';
+$string['privacy:metadata:appid'] = 'The app ID, usually something like com.moodle.moodlemobile';
+$string['privacy:metadata:auth'] = 'The authentication plugin used for this user record.';
+$string['privacy:metadata:autosubscribe'] = 'A preference as to if the user should be auto-subscribed to forums the user posts in.';
+$string['privacy:metadata:calendartype'] = 'A user preference for the type of calendar to use.';
+$string['privacy:metadata:category'] = 'The category identifier';
+$string['privacy:metadata:city'] = 'The city of the user.';
+$string['privacy:metadata:confirmed'] = 'If this is an active user or not.';
+$string['privacy:metadata:country'] = 'The country that the user is in.';
+$string['privacy:metadata:courseid'] = 'Course ID';
+$string['privacy:metadata:currentlogin'] = 'The current login for this user.';
+$string['privacy:metadata:data'] = 'Data relating to the custom user field from the user.';
+$string['privacy:metadata:deleted'] = 'A flag to show if the user has been deleted or not.';
+$string['privacy:metadata:department'] = 'The department that this user can be found in.';
+$string['privacy:metadata:description'] = 'General details about this user.';
+$string['privacy:metadata:devicename'] = 'The device name, occam or iPhone etc..';
+$string['privacy:metadata:devicetablesummary'] = 'This table stores user\'s mobile devices information in order to send PUSH notifications';
+$string['privacy:metadata:email'] = 'An email address for contact.';
+$string['privacy:metadata:emailstop'] = 'A preference to disable notifications from being sent to the user.';
+$string['privacy:metadata:fieldid'] = 'The ID relating to the custom user field.';
+$string['privacy:metadata:filelink'] = 'There are multiple different files for the user stored in the files table.';
+$string['privacy:metadata:firstaccess'] = 'The time that this user first accessed the site.';
+$string['privacy:metadata:firstip'] = 'The first IP address recorded';
+$string['privacy:metadata:firstname'] = 'The first name of the user.';
+$string['privacy:metadata:firstnamephonetic'] = 'The phonetic details about the user\'s first name.';
+$string['privacy:metadata:fullname'] = 'The fullname for this course.';
+$string['privacy:metadata:hash'] = 'A hash of a previous password.';
+$string['privacy:metadata:icq'] = 'The ICQ number of the user.';
+$string['privacy:metadata:id'] = 'The user ID';
+$string['privacy:metadata:idnumber'] = 'An identification number given by the institution';
+$string['privacy:metadata:imagealt'] = 'Alternative text for the user\'s image.';
+$string['privacy:metadata:infotablesummary'] = 'Stores custom user information.';
+$string['privacy:metadata:institution'] = 'The institution that this user is a member of.';
+$string['privacy:metadata:lang'] = 'A user preference for the language shown.';
+$string['privacy:metadata:lastaccess'] = 'The time that the user last accessed the site.';
+$string['privacy:metadata:lastaccesstablesummary'] = 'Information about the last time a user accessed a course.';
+$string['privacy:metadata:lastip'] = 'The last IP address for the user.';
+$string['privacy:metadata:lastlogin'] = 'The last login of this user.';
+$string['privacy:metadata:lastname'] = 'The last name of the user.';
+$string['privacy:metadata:lastnamephonetic'] = 'The phonetic details of the user\'s last name.';
+$string['privacy:metadata:maildigest'] = 'A setting for the mail digest for this user.';
+$string['privacy:metadata:maildisplay'] = 'A preference for the user about displaying their email address to other users.';
+$string['privacy:metadata:middlename'] = 'The middle name of the user';
+$string['privacy:metadata:mnethostid'] = 'An identifier for the MNet host if used';
+$string['privacy:metadata:model'] = 'The device name, occam or iPhone etc..';
+$string['privacy:metadata:moodlenetprofile'] = 'The MoodleNet profile for the user';
+$string['privacy:metadata:msn'] = 'The MSN identifier of the user';
+$string['privacy:metadata:my_pages'] = 'User pages - dashboard and profile. This table does not contain personal data and only used to link dashboard blocks to users';
+$string['privacy:metadata:my_pages:name'] = 'Page name';
+$string['privacy:metadata:my_pages:private'] = 'Whether or not the page is private (dashboard) or public (profile)';
+$string['privacy:metadata:my_pages:userid'] = 'The user who owns this page or 0 for system defaults';
+$string['privacy:metadata:password'] = 'The password for this user to log into the system.';
+$string['privacy:metadata:passwordresettablesummary'] = 'A table tracking password reset confirmation tokens';
+$string['privacy:metadata:passwordtablesummary'] = 'A rotating log of hashes of previously used passwords for the user.';
+$string['privacy:metadata:phone'] = 'A phone number for the user.';
+$string['privacy:metadata:picture'] = 'The picture details associated with this user.';
+$string['privacy:metadata:platform'] = 'The device platform, Android or iOS etc';
+$string['privacy:metadata:policyagreed'] = 'A flag to determine if the user has agreed to the site policy.';
+$string['privacy:metadata:pushid'] = 'The device PUSH token/key/identifier/registration ID';
+$string['privacy:metadata:reason'] = 'The reason for requesting this course.';
+$string['privacy:metadata:requester'] = 'The ID of the user who requested the course';
+$string['privacy:metadata:requestsummary'] = 'Stores information about requests for courses that users make.';
+$string['privacy:metadata:suspended'] = 'A flag to show if the user has been suspended on this system.';
+$string['privacy:metadata:user_preference:core_user_welcome'] = 'Timestamp logged for when the welcome message was shown to the user for the first time.';
+$string['privacy:metadata:user_preferences'] = 'Preferences associated with the given user';
+$string['privacy:metadata:user_preferences:name'] = 'Preference name';
+$string['privacy:metadata:user_preferences:userid'] = 'The user ID';
+$string['privacy:metadata:user_preferences:value'] = 'Preference value';
+$string['privacy:metadata:username'] = 'The username for this user.';
+$string['privacy:metadata:secret'] = 'Secret.. not sure.';
+$string['privacy:metadata:sessdata'] = 'Session content';
+$string['privacy:metadata:sessiontablesummary'] = 'Database based session storage';
+$string['privacy:metadata:shortname'] = 'A short name for the course.';
+$string['privacy:metadata:sid'] = 'The session ID';
+$string['privacy:metadata:skype'] = 'The Skype identifier of the user';
+$string['privacy:metadata:state'] = '0 means a normal session';
+$string['privacy:metadata:summary'] = 'A description of the course.';
+$string['privacy:metadata:theme'] = 'A user preference for the theme to display.';
+$string['privacy:metadata:timeaccess'] = 'The time for access to the course.';
+$string['privacy:metadata:timecreated'] = 'The time this record was created.';
+$string['privacy:metadata:timemodified'] = 'The time when the record was modified';
+$string['privacy:metadata:timererequested'] = 'The time the user re-requested the password reset.';
+$string['privacy:metadata:timerequested'] = 'The time that the user first requested this password reset';
+$string['privacy:metadata:timezone'] = 'The timezone of the user';
+$string['privacy:metadata:token'] = 'secret set and emailed to user';
+$string['privacy:metadata:trackforums'] = 'A preference for forums and tracking them.';
+$string['privacy:metadata:trustbitmask'] = 'The trust bit mask';
+$string['privacy:metadata:yahoo'] = 'The Yahoo identifier of the user';
+$string['privacy:metadata:url'] = 'A URL related to this user.';
+$string['privacy:metadata:userid'] = 'The user ID linked to this table.';
+$string['privacy:metadata:usertablesummary'] = 'This table stores the main personal data about the user.';
+$string['privacy:metadata:uuid'] = 'The device vendor UUID';
+$string['privacy:metadata:version'] = 'The device version, 6.1.2, 4.2.2 etc..';
+$string['privacy:passwordhistorypath'] = 'Password history';
+$string['privacy:passwordresetpath'] = 'Password resets';
+$string['privacy:profileimagespath'] = 'Profile images';
+$string['privacy:privatefilespath'] = 'Private files';
+$string['privacy:sessionpath'] = 'Session data';
+$string['filterbykeyword'] = 'Keyword';
+$string['supportmessagesent'] = 'Your message has been sent.';
+$string['supportmessagesentforloggedoutuser'] = 'Be careful with this message. The sender was not logged in, so their identity has not been confirmed.';
+$string['supportmessagenotsent'] = "Unfortunately your message could not be sent.";
+$string['supportmessagealternative'] = 'Instead you can email {$a}.';
+$string['target:upcomingactivitiesdue'] = 'Upcoming activities due';
+$string['target:upcomingactivitiesdue_help'] = 'This target generates reminders for upcoming activities due.';
+$string['target:upcomingactivitiesdueinfo'] = 'All upcoming activities due insights are listed here. These students have received these insights directly.';
+$string['usergroupselectorcount'] = '{$a->fullname} ({$a->groupcount})';
+$string['userprofile'] = 'User profile';

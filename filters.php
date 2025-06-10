@@ -15,245 +15,75 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Filter management page.
+ * Strings for component 'filters', language 'en', branch 'MOODLE_20_STABLE'
  *
- * @package    core
- * @copyright  1999 onwards Martin Dougiamas  http://dougiamas.com
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package   core_filters
+ * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->libdir . '/adminlib.php');
+$string['actfilterhdr'] = 'Active filters';
+$string['addfilter'] = 'Add filter';
+$string['anycategory'] = 'any category';
+$string['anycourse'] = 'any course';
+$string['anycourses'] = 'Enrolled in any course';
+$string['anyfield'] = 'any field';
+$string['anyrole'] = 'any role';
+$string['anyvalue'] = 'any value';
+$string['applyto'] = 'Apply to';
+$string['categoryrole'] = 'Category role';
+$string['contains'] = 'contains';
+$string['content'] = 'Content';
+$string['contentandheadings'] = 'Content and headings';
+$string['coursecategory'] = 'course category';
+$string['courserole'] = 'Course role';
+$string['courserolelabel'] = '{$a->label} is {$a->rolename} in {$a->coursename} from {$a->categoryname}';
+$string['courserolelabelerror'] = '{$a->label} error: course {$a->coursename} does not exist';
+$string['coursevalue'] = 'course value';
+$string['datelabelisafter'] = '{$a->label} is after {$a->after}';
+$string['datelabelisbefore'] = '{$a->label} is before {$a->before}';
+$string['datelabelisbetween'] = '{$a->label} is between {$a->after} and {$a->before}';
+$string['defaultx'] = 'Default ({$a})';
+$string['disabled'] = 'Disabled';
+$string['doesnotcontain'] = 'doesn\'t contain';
+$string['endswith'] = 'ends with';
+$string['filterallwarning'] = 'Applying filters to headings as well as content can greatly increase the load on your server. Please use that \'Apply to\' settings sparingly. The main use is with the multilang filter.';
+$string['filtersettings'] = 'Filter settings';
+$string['filtersettings_help'] = 'This page lets you turn filters on or off in a particular part of the site.
 
-$action = optional_param('action', '', PARAM_ALPHA);
-$filterpath = optional_param('filterpath', '', PARAM_PLUGIN);
-
-admin_externalpage_setup('managefilters');
-
-// Clean up bogus filter states first.
-/** @var core\plugininfo\filter[] $plugininfos */
-$plugininfos = core_plugin_manager::instance()->get_plugins_of_type('filter');
-$filters = [];
-$states = filter_get_global_states();
-foreach ($states as $state) {
-    if (!isset($plugininfos[$state->filter]) and !get_config('filter_'.$state->filter, 'version')) {
-        // Purge messy leftovers after incorrectly uninstalled plugins and unfinished installations.
-        $DB->delete_records('filter_active', ['filter' => $state->filter]);
-        $DB->delete_records('filter_config', ['filter' => $state->filter]);
-        error_log('Deleted bogus "filter_'.$state->filter.'" states and config data.');
-    } else {
-        $filters[$state->filter] = $state;
-    }
-}
-
-// Add properly installed and upgraded filters to the global states table.
-foreach ($plugininfos as $filter => $info) {
-    if (isset($filters[$filter])) {
-        continue;
-    }
-    if ($info->is_installed_and_upgraded()) {
-        filter_set_global_state($filter, TEXTFILTER_DISABLED);
-        $states = filter_get_global_states();
-        foreach ($states as $state) {
-            if ($state->filter === $filter) {
-                $filters[$filter] = $state;
-                break;
-            }
-        }
-    }
-}
-
-if ($action) {
-    require_sesskey();
-}
-
-// Process actions.
-switch ($action) {
-
-    case 'setstate':
-        if (isset($filters[$filterpath]) and $newstate = optional_param('newstate', '', PARAM_INT)) {
-            /** @var \core\plugininfo\filter $class */
-            $class = core_plugin_manager::resolve_plugininfo_class('filter');
-            $class::enable_plugin($filterpath, $newstate);
-        }
-        break;
-
-    case 'setapplyto':
-        if (isset($filters[$filterpath])) {
-            $applytostrings = optional_param('stringstoo', false, PARAM_BOOL);
-            filter_set_applies_to_strings($filterpath, $applytostrings);
-            reset_text_filters_cache();
-            core_plugin_manager::reset_caches();
-        }
-        break;
-
-    case 'down':
-        if (isset($filters[$filterpath])) {
-            filter_set_global_state($filterpath, $filters[$filterpath]->active, 1);
-            reset_text_filters_cache();
-            core_plugin_manager::reset_caches();
-        }
-        break;
-
-    case 'up':
-        if (isset($filters[$filterpath])) {
-            $oldpos = $filters[$filterpath]->sortorder;
-            filter_set_global_state($filterpath, $filters[$filterpath]->active, -1);
-            reset_text_filters_cache();
-            core_plugin_manager::reset_caches();
-        }
-        break;
-}
-
-// Return.
-if ($action) {
-    redirect(new moodle_url('/admin/filters.php'));
-}
-
-// Print the page heading.
-echo $OUTPUT->header();
-echo $OUTPUT->heading(get_string('filtersettings', 'admin'));
-
-$states = filter_get_global_states();
-$stringfilters = filter_get_string_filters();
-
-$table = new html_table();
-$table->head  = [get_string('filter'), get_string('isactive', 'filters'),
-        get_string('order'), get_string('applyto', 'filters'), get_string('settings'), get_string('uninstallplugin', 'core_admin')];
-$table->colclasses = array ('leftalign', 'leftalign', 'centeralign', 'leftalign', 'leftalign', 'leftalign');
-$table->attributes['class'] = 'admintable generaltable';
-$table->id = 'filterssetting';
-$table->data  = [];
-
-$lastactive = null;
-foreach ($states as $state) {
-    if ($state->active != TEXTFILTER_DISABLED) {
-        $lastactive = $state->filter;
-    }
-}
-
-// Iterate through filters adding to display table.
-$firstrow = true;
-foreach ($states as $state) {
-    $filter = $state->filter;
-    if (!isset($plugininfos[$filter])) {
-        continue;
-    }
-    $plugininfo = $plugininfos[$filter];
-    $applytostrings = isset($stringfilters[$filter]) && $state->active != TEXTFILTER_DISABLED;
-    $row = get_table_row($plugininfo, $state, $firstrow, $filter == $lastactive, $applytostrings);
-    $table->data[] = $row;
-    if ($state->active == TEXTFILTER_DISABLED) {
-        $table->rowclasses[] = 'dimmed_text';
-    } else {
-        $table->rowclasses[] = '';
-    }
-    $firstrow = false;
-}
-
-echo html_writer::table($table);
-echo '<p class="filtersettingnote">' . get_string('filterallwarning', 'filters') . '</p>';
-echo $OUTPUT->footer();
-die;
-
-
-/**
- * Return action URL.
- *
- * @param string $filterpath which filter to get the URL for.
- * @param string $action which action to get the URL for.
- * @return moodle_url|null the requested URL.
- */
-function filters_action_url(string $filterpath, string $action): ?moodle_url {
-    if ($action === 'delete') {
-        return core_plugin_manager::instance()->get_uninstall_url('filter_'.$filterpath, 'manage');
-    }
-    return new moodle_url('/admin/filters.php',
-            ['sesskey' => sesskey(), 'filterpath' => $filterpath, 'action' => $action]);
-}
-
-/**
- * Construct table record.
- *
- * @param \core\plugininfo\filter $plugininfo
- * @param stdClass $state
- * @param bool $isfirstrow
- * @param bool $islastactive
- * @param bool $applytostrings
- * @return array data
- */
-function get_table_row(\core\plugininfo\filter $plugininfo, stdClass $state,
-        bool $isfirstrow, bool $islastactive, bool $applytostrings): array {
-    global $OUTPUT;
-    $row = [];
-    $filter = $state->filter;
-    $active = $plugininfo->is_installed_and_upgraded();
-
-    static $activechoices;
-    static $applytochoices;
-    if (!isset($activechoices)) {
-        $activechoices = [
-            TEXTFILTER_DISABLED => get_string('disabled', 'core_filters'),
-            TEXTFILTER_OFF => get_string('offbutavailable', 'core_filters'),
-            TEXTFILTER_ON => get_string('on', 'core_filters'),
-        ];
-        $applytochoices = [
-            0 => get_string('content', 'core_filters'),
-            1 => get_string('contentandheadings', 'core_filters'),
-        ];
-    }
-
-    // Filter name.
-    $displayname = $plugininfo->displayname;
-    if (!$plugininfo->rootdir) {
-        $displayname = '<span class="error">' . $displayname . ' - ' . get_string('status_missing', 'core_plugin') . '</span>';
-    } else if (!$active) {
-        $displayname = '<span class="error">' . $displayname . ' - ' . get_string('error') . '</span>';
-    }
-    $row[] = $displayname;
-
-    // Disable/off/on.
-    $select = new single_select(filters_action_url($filter, 'setstate'), 'newstate', $activechoices, $state->active, null, 'active' . $filter);
-    $select->set_label(get_string('isactive', 'filters'), ['class' => 'accesshide']);
-    $row[] = $OUTPUT->render($select);
-
-    // Re-order.
-    $updown = '';
-    $spacer = $OUTPUT->spacer();
-    if ($state->active != TEXTFILTER_DISABLED) {
-        if (!$isfirstrow) {
-            $updown .= $OUTPUT->action_icon(filters_action_url($filter, 'up'),
-                    new pix_icon('t/up', get_string('up'), '', ['class' => 'iconsmall']));
-        } else {
-            $updown .= $spacer;
-        }
-        if (!$islastactive) {
-            $updown .= $OUTPUT->action_icon(filters_action_url($filter, 'down'),
-                    new pix_icon('t/down', get_string('down'), '', ['class' => 'iconsmall']));
-        } else {
-            $updown .= $spacer;
-        }
-    }
-    $row[] = $updown;
-
-    // Apply to strings.
-    $select = new single_select(filters_action_url($filter, 'setapplyto'),
-            'stringstoo', $applytochoices, $applytostrings, null, 'applyto' . $filter);
-    $select->set_label(get_string('applyto', 'filters'), ['class' => 'accesshide']);
-    $select->disabled = ($state->active == TEXTFILTER_DISABLED);
-    $row[] = $OUTPUT->render($select);
-
-    // Settings link, if required.
-    if ($active and filter_has_global_settings($filter)) {
-        $row[] = html_writer::link(new moodle_url('/admin/settings.php',
-                ['section' => 'filtersetting'.$filter]), get_string('settings'));
-    } else {
-        $row[] = '';
-    }
-
-    // Uninstall.
-    $row[] = html_writer::link(filters_action_url($filter, 'delete'),
-            get_string('uninstallplugin', 'core_admin'));
-
-    return $row;
-}
+Some filters may also let you set local settings, in which case there will be a settings link next to their name.';
+$string['filtersettingsforin'] = 'Filter settings for {$a->filter} in {$a->context}';
+$string['filtersettingsin'] = 'Filter settings in {$a}';
+$string['firstaccess'] = 'First access';
+$string['globalrolelabel'] = '{$a->label} is {$a->value}';
+$string['isactive'] = 'Active?';
+$string['isafter'] = 'is after';
+$string['isanyvalue'] = 'is any value';
+$string['isbefore'] = 'is before';
+$string['isdefined'] = 'is defined';
+$string['isempty'] = 'is empty';
+$string['isequalto'] = 'is equal to';
+$string['isnotdefined'] = 'isn\'t defined';
+$string['isnotequalto'] = 'isn\'t equal to';
+$string['limiterfor'] = '{$a} field limiter';
+$string['neveraccessed'] = 'Never accessed';
+$string['nevermodified'] = 'Never modified';
+$string['newfilter'] = 'New filter';
+$string['nofiltersenabled'] = 'No filter plugins have been enabled on this site.';
+$string['off'] = 'Off';
+$string['offbutavailable'] = 'Off, but available';
+$string['on'] = 'On';
+$string['privacy:reason'] = 'The Filter subsystem does not store any personal data.';
+$string['profilefilterfield'] = 'Profile field name';
+$string['profilefilterlimiter'] = 'Profile field operator';
+$string['profilelabel'] = '{$a->label}: {$a->profile} {$a->operator} {$a->value}';
+$string['profilelabelnovalue'] = '{$a->label}: {$a->profile} {$a->operator}';
+$string['removeall'] = 'Remove all filters';
+$string['removeselected'] = 'Remove selected';
+$string['replacefilters'] = 'Replace filters';
+$string['selectlabel'] = '{$a->label} {$a->operator} {$a->value}';
+$string['startswith'] = 'starts with';
+$string['tablenosave'] = 'Changes in table above are saved automatically.';
+$string['textlabel'] = '{$a->label} {$a->operator} {$a->value}';
+$string['textlabelnovalue'] = '{$a->label} {$a->operator}';
+$string['valuefor'] = '{$a} value';

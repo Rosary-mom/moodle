@@ -15,91 +15,28 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Display details of an issued badge with criteria and evidence
+ * Strings for component 'webservice', language 'en', branch 'MOODLE_20_STABLE'
  *
- * @package    core
- * @subpackage badges
- * @copyright  2012 onwards Totara Learning Solutions Ltd {@link http://www.totaralms.com/}
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @author     Yuliya Bozhko <yuliya.bozhko@totaralms.com>
+ * @package   core_webservice
+ * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->libdir . '/badgeslib.php');
-
-$json = optional_param('badge', null, PARAM_RAW);
-// Redirect to homepage if users are trying to access external badge through old url.
-if ($json) {
-    redirect($CFG->wwwroot, get_string('invalidrequest', 'error'), 3);
-}
-
-$hash = required_param('hash', PARAM_ALPHANUM);
-$userid = required_param('user', PARAM_INT);
-
-$PAGE->set_url(new moodle_url('/badges/external.php', array('hash' => $hash, 'user' => $userid)));
-$PAGE->set_context(context_system::instance());
-
-// Using the same setting as user profile page.
-if (!empty($CFG->forceloginforprofiles)) {
-    require_login();
-    if (isguestuser()) {
-        $SESSION->wantsurl = $PAGE->url->out(false);
-        redirect(get_login_url());
-    }
-} else if (!empty($CFG->forcelogin)) {
-    require_login();
-}
-
-// Get all external badges of a user.
-$out = get_backpack_settings($userid);
-
-// If we didn't find any badges then print an error.
-if (is_null($out)) {
-    throw new \moodle_exception('error:externalbadgedoesntexist', 'badges');
-}
-
-$badges = $out->badges;
-
-// The variable to store the badge we want.
-$badge = '';
-
-// Loop through the badges and check if supplied badge hash exists in user external badges.
-foreach ($badges as $b) {
-    if ($hash == hash("md5", $b->hostedUrl)) {
-        $badge = $b;
-        break;
-    }
-}
-
-// If we didn't find the badge a user might be trying to replace the userid parameter.
-if (empty($badge)) {
-    throw new \moodle_exception('error:externalbadgedoesntexist', 'badges');
-}
-
-$output = $PAGE->get_renderer('core', 'badges');
-
-$badge = new \core_badges\output\external_badge($badge, $userid);
-
-$PAGE->set_pagelayout('base');
-$PAGE->set_title(get_string('issuedbadge', 'badges'));
-$badgename = '';
-if (!empty($badge->issued->name)) {
-    $badgename = s($badge->issued->name);
-}
-if (!empty($badge->issued->assertion->badge->name)) {
-    $badgename = s($badge->issued->assertion->badge->name);
-}
-$PAGE->set_heading($badgename);
-$PAGE->navbar->add($badgename);
-if (isloggedin() && $USER->id == $userid) {
-    $url = new moodle_url('/badges/mybadges.php');
-} else {
-    $url = new moodle_url($CFG->wwwroot);
-}
-navigation_node::override_active_url($url);
-
-echo $OUTPUT->header();
-
-echo $output->render($badge);
-
-echo $OUTPUT->footer();
+$string['privacy:metadata:serviceusers'] = 'A list of users who can use a certain external service';
+$string['privacy:metadata:serviceusers:iprestriction'] = 'IP restricted to use the service';
+$string['privacy:metadata:serviceusers:timecreated'] = 'The date when the record was created';
+$string['privacy:metadata:serviceusers:userid'] = 'The ID of the user';
+$string['privacy:metadata:serviceusers:validuntil'] = 'The date that the authorisation is valid until';
+$string['privacy:metadata:tokens'] = 'A record of tokens for interacting with Moodle through web services or Mobile applications.';
+$string['privacy:metadata:tokens:creatorid'] = 'The ID of the user who created the token';
+$string['privacy:metadata:tokens:iprestriction'] = 'IP restricted to use this token';
+$string['privacy:metadata:tokens:lastaccess'] = 'The date when the token was last used';
+$string['privacy:metadata:tokens:name'] = 'The token name';
+$string['privacy:metadata:tokens:privatetoken'] = 'A more private token occasionally used to validate certain operations, such as SSO';
+$string['privacy:metadata:tokens:timecreated'] = 'The date when the token was created';
+$string['privacy:metadata:tokens:token'] = 'The user\'s token';
+$string['privacy:metadata:tokens:tokentype'] = 'The type of token';
+$string['privacy:metadata:tokens:userid'] = 'The ID of the user whose token it is';
+$string['privacy:metadata:tokens:validuntil'] = 'The date that the token is valid until';
+$string['privacy:request:notexportedsecurity'] = 'Not exported for security reasons';
+$string['services'] = 'External services';

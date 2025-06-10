@@ -14,400 +14,255 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-require_once(__DIR__ . '/../config.php');
-require_once($CFG->dirroot . '/repository/lib.php');
-require_once($CFG->libdir . '/adminlib.php');
+/**
+ * Strings for component 'repository', language 'en', branch 'MOODLE_20_STABLE'
+ *
+ * @package   core_repository
+ * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
-$repository       = optional_param('repos', '', PARAM_ALPHANUMEXT);
-$action           = optional_param('action', '', PARAM_ALPHANUMEXT);
-$sure             = optional_param('sure', '', PARAM_ALPHA);
-$downloadcontents = optional_param('downloadcontents', false, PARAM_BOOL);
-
-$display = true; // fall through to normal display
-
-$pagename = 'managerepositories';
-
-if ($action == 'edit') {
-    $pagename = 'repositorysettings' . $repository;
-} else if ($action == 'delete') {
-    $pagename = 'repositorydelete';
-} else if (($action == 'newon') || ($action == 'newoff')) {
-    $pagename = 'repositorynew';
-}
-
-// Need to remember this for form
-$formaction = $action;
-
-// Check what visibility to show the new repository
-if ($action == 'newon') {
-    $action = 'new';
-    $visible = true;
-} else if ($action == 'newoff') {
-    $action = 'new';
-    $visible = false;
-}
-
-admin_externalpage_setup($pagename);
-
-// The URL used for redirection, and that all edit related URLs will be based off.
-$baseurl = new moodle_url('/admin/repository.php');
-
-$return = true;
-
-if (($action == 'edit') || ($action == 'new')) {
-    $pluginname = '';
-    if ($action == 'edit') {
-        $repositorytype = repository::get_type_by_typename($repository);
-        $classname = 'repository_' . $repositorytype->get_typename();
-        $configs = call_user_func(array($classname, 'get_type_option_names'));
-        $plugin = $repositorytype->get_typename();
-        // looking for instance to edit plugin name
-        $instanceoptions = call_user_func(array($classname, 'get_instance_option_names'));
-        if (empty($instanceoptions)) {
-            $params = array();
-            $params['type'] = $plugin;
-            $instances = repository::get_instances($params);
-            if ($instance = array_pop($instances)) {
-                // use the one form db record
-                $pluginname = $instance->instance->name;
-            }
-        }
-
-    } else {
-        $repositorytype = null;
-        $plugin = $repository;
-        $typeid = $repository;
-    }
-    $PAGE->set_pagetype('admin-repository-' . $plugin);
-    // display the edit form for this instance
-    $mform = new repository_type_form('', array('pluginname'=>$pluginname, 'plugin' => $plugin, 'instance' => $repositorytype, 'action' => $formaction));
-    $fromform = $mform->get_data();
-
-    //detect if we create a new type without config (in this case if don't want to display a setting page during creation)
-    $nosettings = false;
-    if ($action == 'new') {
-        $adminconfignames = repository::static_function($repository, 'get_type_option_names');
-        $nosettings = empty($adminconfignames);
-    }
-    // end setup, begin output
-
-    if ($mform->is_cancelled()){
-        redirect($baseurl);
-    } else if (!empty($fromform) || $nosettings) {
-        require_sesskey();
-        if ($action == 'edit') {
-            $settings = array();
-            foreach($configs as $config) {
-                if (!empty($fromform->$config)) {
-                    $settings[$config] = $fromform->$config;
-                } else {
-                    // if the config name is not appear in $fromform
-                    // empty this config value
-                    $settings[$config] = '';
-                }
-            }
-            $instanceoptionnames = repository::static_function($repository, 'get_instance_option_names');
-            if (!empty($instanceoptionnames)) {
-                if (property_exists($fromform, 'enablecourseinstances')) {
-                    $settings['enablecourseinstances'] = $fromform->enablecourseinstances;
-                }
-                else {
-                    $settings['enablecourseinstances'] = 0;
-                }
-                if (property_exists($fromform, 'enableuserinstances')) {
-                    $settings['enableuserinstances'] = $fromform->enableuserinstances;
-                }
-                else {
-                    $settings['enableuserinstances'] = 0;
-                }
-            }
-            $success = $repositorytype->update_options($settings);
-        } else {
-            $type = new repository_type($plugin, (array)$fromform, $visible);
-            $success = true;
-            if (!$repoid = $type->create()) {
-                $success = false;
-            } else {
-                add_to_config_log('repository_visibility', '', (int)$visible, $plugin);
-            }
-            $data = data_submitted();
-        }
-        if ($success) {
-            // configs saved
-            core_plugin_manager::reset_caches();
-            redirect($baseurl);
-        } else {
-            throw new \moodle_exception('instancenotsaved', 'repository', $baseurl);
-        }
-        exit;
-    } else {
-        echo $OUTPUT->header();
-        echo $OUTPUT->heading(get_string('configplugin', 'repository_'.$plugin));
-        $displaysettingform = true;
-        if ($action == 'edit') {
-            $typeoptionnames = repository::static_function($repository, 'get_type_option_names');
-            $instanceoptionnames = repository::static_function($repository, 'get_instance_option_names');
-            if (empty($typeoptionnames) && empty($instanceoptionnames)) {
-                $displaysettingform = false;
-            }
-        }
-        if ($displaysettingform){
-            $OUTPUT->box_start();
-            $mform->display();
-            $OUTPUT->box_end();
-        }
-        $return = false;
-
-        // Display instances list and creation form
-        if ($action == 'edit') {
-            $instanceoptionnames = repository::static_function($repository, 'get_instance_option_names');
-            if (!empty($instanceoptionnames)) {
-                repository::display_instances_list(context_system::instance(), $repository);
-            }
-        }
-    }
-} else if ($action == 'show') {
-    require_sesskey();
-    $class = \core_plugin_manager::resolve_plugininfo_class('repository');
-    $class::enable_plugin($repository, 1);
-    $return = true;
-} else if ($action == 'hide') {
-    require_sesskey();
-    $class = \core_plugin_manager::resolve_plugininfo_class('repository');
-    $class::enable_plugin($repository, 0);
-    $return = true;
-} else if ($action == 'delete') {
-    $repositorytype = repository::get_type_by_typename($repository);
-    if ($sure) {
-        $PAGE->set_pagetype('admin-repository-' . $repository);
-        require_sesskey();
-
-        if ($repositorytype->delete($downloadcontents)) {
-            // Include this information into config changes table.
-            add_to_config_log('repository_visibility', $repositorytype->get_visible(), '', $repository);
-            core_plugin_manager::reset_caches();
-            redirect($baseurl);
-        } else {
-            throw new \moodle_exception('instancenotdeleted', 'repository', $baseurl);
-        }
-        exit;
-    } else {
-        echo $OUTPUT->header();
-
-        $message = get_string('confirmremove', 'repository', $repositorytype->get_readablename());
-
-        $output = $OUTPUT->box_start('generalbox', 'notice');
-        $output .= html_writer::tag('p', $message);
-
-        $removeurl = new moodle_url($baseurl, [
-            'action' =>'delete',
-            'repos' => $repository,
-            'sure' => 'yes',
-        ]);
-
-        $removeanddownloadurl = new moodle_url($removeurl, [
-            'downloadcontents' => 1,
-        ]);
-
-        $output .= $OUTPUT->single_button($removeurl, get_string('continueuninstall', 'repository'));
-        $output .= $OUTPUT->single_button($removeanddownloadurl, get_string('continueuninstallanddownload', 'repository'));
-        $output .= $OUTPUT->single_button($baseurl, get_string('cancel'));
-        $output .= $OUTPUT->box_end();
-
-        echo $output;
-
-        $return = false;
-    }
-} else if ($action == 'moveup') {
-    require_sesskey();
-    $repositorytype = repository::get_type_by_typename($repository);
-    $repositorytype->move_order('up');
-} else if ($action == 'movedown') {
-    require_sesskey();
-    $repositorytype = repository::get_type_by_typename($repository);
-    $repositorytype->move_order('down');
-} else {
-    // If page is loaded directly
-    echo $OUTPUT->header();
-    echo $OUTPUT->heading(get_string('manage', 'repository'));
-
-    // Get strings that are used
-    $strshow = get_string('on', 'repository');
-    $strhide = get_string('off', 'repository');
-    $strdelete = get_string('disabled', 'repository');
-    $struninstall = get_string('uninstallplugin', 'core_admin');
-
-    $actionchoicesforexisting = array(
-        'show' => $strshow,
-        'hide' => $strhide,
-        'delete' => $strdelete
-    );
-
-    $actionchoicesfornew = array(
-        'newon' => $strshow,
-        'newoff' => $strhide,
-        'delete' => $strdelete
-    );
-
-    $output = '';
-    $output .= $OUTPUT->box_start('generalbox');
-
-    // Set strings that are used multiple times
-    $settingsstr = get_string('settings');
-    $disablestr = get_string('disable');
-
-    // Table to list plug-ins
-    $table = new html_table();
-    $table->head = array(get_string('name'), get_string('isactive', 'repository'), get_string('order'), $settingsstr, $struninstall);
-
-    $table->colclasses = array('leftalign', 'centeralign', 'centeralign', 'centeralign', 'centeralign', 'centeralign');
-    $table->id = 'repositoriessetting';
-    $table->data = array();
-    $table->attributes['class'] = 'admintable generaltable';
-
-    // Get list of used plug-ins
-    $repositorytypes = repository::get_types();
-    // Array to store plugins being used
-    $alreadyplugins = array();
-    if (!empty($repositorytypes)) {
-        $totalrepositorytypes = count($repositorytypes);
-        $updowncount = 1;
-        foreach ($repositorytypes as $i) {
-            $settings = '';
-            $typename = $i->get_typename();
-            // Display edit link only if you can config the type or if it has multiple instances (e.g. has instance config)
-            $typeoptionnames = repository::static_function($typename, 'get_type_option_names');
-            $instanceoptionnames = repository::static_function($typename, 'get_instance_option_names');
-
-            if (!empty($typeoptionnames) || !empty($instanceoptionnames)) {
-                // Calculate number of instances in order to display them for the Moodle administrator
-                if (!empty($instanceoptionnames)) {
-                    $params = array();
-                    $params['context'] = array(context_system::instance());
-                    $params['onlyvisible'] = false;
-                    $params['type'] = $typename;
-                    $admininstancenumber = count(repository::static_function($typename, 'get_instances', $params));
-                    // site instances
-                    $admininstancenumbertext = get_string('instancesforsite', 'repository', $admininstancenumber);
-                    $params['context'] = array();
-                    $instances = repository::static_function($typename, 'get_instances', $params);
-                    $courseinstances = array();
-                    $userinstances = array();
-
-                    foreach ($instances as $instance) {
-                        $repocontext = context::instance_by_id($instance->instance->contextid);
-                        if ($repocontext->contextlevel == CONTEXT_COURSE) {
-                            $courseinstances[] = $instance;
-                        } else if ($repocontext->contextlevel == CONTEXT_USER) {
-                            $userinstances[] = $instance;
-                        }
-                    }
-                    // course instances
-                    $instancenumber = count($courseinstances);
-                    $courseinstancenumbertext = get_string('instancesforcourses', 'repository', $instancenumber);
-
-                    // user private instances
-                    $instancenumber =  count($userinstances);
-                    $userinstancenumbertext = get_string('instancesforusers', 'repository', $instancenumber);
-                } else {
-                    $admininstancenumbertext = "";
-                    $courseinstancenumbertext = "";
-                    $userinstancenumbertext = "";
-                }
-
-                $settings = html_writer::link(new moodle_url($baseurl, ['action' => 'edit', 'repos' => $typename]), $settingsstr);
-                $settings .= $OUTPUT->container_start('mdl-left');
-                $settings .= '<br/>';
-                $settings .= $admininstancenumbertext;
-                $settings .= '<br/>';
-                $settings .= $courseinstancenumbertext;
-                $settings .= '<br/>';
-                $settings .= $userinstancenumbertext;
-                $settings .= $OUTPUT->container_end();
-            }
-            // Get the current visibility
-            if ($i->get_visible()) {
-                $currentaction = 'show';
-            } else {
-                $currentaction = 'hide';
-            }
-
-            // Active toggle.
-            $selectaction = new moodle_url($baseurl, ['sesskey' => sesskey(), 'repos' => $typename]);
-            $select = new single_select($selectaction, 'action', $actionchoicesforexisting, $currentaction, null,
-                'applyto' . basename($typename));
-            $select->set_label(get_string('action'), array('class' => 'accesshide'));
-
-            // Display up/down link
-            $updown = '';
-            $spacer = $OUTPUT->spacer(array('height'=>15, 'width'=>15)); // should be done with CSS instead
-
-            if ($updowncount > 1) {
-                $moveupaction = new moodle_url($baseurl, [
-                    'sesskey' => sesskey(),
-                    'action' => 'moveup',
-                    'repos' => $typename,
-                ]);
-                $updown .= html_writer::link($moveupaction, $OUTPUT->pix_icon('t/up', get_string('moveup'))) . '&nbsp;';
-            }
-            else {
-                $updown .= $spacer;
-            }
-            if ($updowncount < $totalrepositorytypes) {
-                $movedownaction = new moodle_url($baseurl, [
-                    'sesskey' => sesskey(),
-                    'action' => 'movedown',
-                    'repos' => $typename,
-                ]);
-                $updown .= html_writer::link($movedownaction, $OUTPUT->pix_icon('t/down', get_string('movedown'))) . '&nbsp;';
-            }
-            else {
-                $updown .= $spacer;
-            }
-
-            $updowncount++;
-
-            $uninstall = '';
-            if ($uninstallurl = core_plugin_manager::instance()->get_uninstall_url('repository_' . $typename, 'manage')) {
-                $uninstall = html_writer::link($uninstallurl, $struninstall);
-            }
-
-            $table->data[] = array($i->get_readablename(), $OUTPUT->render($select), $updown, $settings, $uninstall);
-            $table->rowclasses[] = '';
-
-            if (!in_array($typename, $alreadyplugins)) {
-                $alreadyplugins[] = $typename;
-            }
-        }
-    }
-
-    // Get all the plugins that exist on disk
-    $plugins = core_component::get_plugin_list('repository');
-    if (!empty($plugins)) {
-        foreach ($plugins as $plugin => $dir) {
-            // Check that it has not already been listed
-            if (!in_array($plugin, $alreadyplugins)) {
-                $selectaction = new moodle_url($baseurl, ['sesskey' => sesskey(), 'repos' => $plugin]);
-                $select = new single_select($selectaction, 'action', $actionchoicesfornew, 'delete', null,
-                    'applyto' . basename($plugin));
-                $select->set_label(get_string('action'), array('class' => 'accesshide'));
-                $uninstall = '';
-                if ($uninstallurl = core_plugin_manager::instance()->get_uninstall_url('repository_' . $plugin, 'manage')) {
-                    $uninstall = html_writer::link($uninstallurl, $struninstall);
-                }
-                $table->data[] = array(get_string('pluginname', 'repository_'.$plugin), $OUTPUT->render($select), '', '', $uninstall);
-                $table->rowclasses[] = 'dimmed_text';
-            }
-        }
-    }
-
-    $output .= html_writer::table($table);
-    $output .= $OUTPUT->box_end();
-    print $output;
-    $return = false;
-}
-
-if ($return) {
-    redirect($baseurl);
-}
-echo $OUTPUT->footer();
+$string['accessiblefilepicker'] = 'Accessible file picker';
+$string['activaterep'] = 'Active repositories';
+$string['activerepository'] = 'Available repository plugins';
+$string['add'] = 'Add';
+$string['addfile'] = 'Add...';
+$string['addfiletext'] = 'Add file';
+$string['addplugin'] = 'Add a repository plugin';
+$string['aliaseschange'] = 'There are {$a} links to this file. If you proceed then locations which currently link to the file will be automatically updated to use a copy of the file instead.';
+$string['allowexternallinks'] = 'Allow external links';
+$string['areamainfile'] = 'Main file';
+$string['coursebackup'] = 'Course backups';
+$string['pluginname'] = 'Repository plugin name'; // Todo fix this, this string identifier is reserved.
+$string['pluginnamehelp'] = 'If you leave this empty the default name will be used.';
+$string['sectionbackup'] = 'Section backups';
+$string['activitybackup'] = 'Activity backup';
+$string['areacategoryintro'] = 'Category introduction';
+$string['areacourseintro'] = 'Course introduction';
+$string['areacourseoverviewfiles'] = 'Course image';
+$string['arearoot'] = 'System';
+$string['areauserdraft'] = 'Drafts';
+$string['areauserbackup'] = 'User backup';
+$string['areauserpersonal'] = 'Private files';
+$string['areauserprofile'] = 'Profile';
+$string['attachedfiles'] = 'Attached files';
+$string['attachment'] = 'Attachment';
+$string['author'] = 'Author';
+$string['back'] = 'Back';
+$string['backtodraftfiles'] = 'Back to draft files manager';
+$string['cachecleared'] = 'Cached files are removed';
+$string['cacheexpire'] = 'Cache expire';
+$string['cannotaccessparentwin'] = 'When using HTTPS, the repository is not refreshed automatically. Instead, you need to return to the file picker and select the repository again.';
+$string['cannotdelete'] = 'Cannot delete this file.';
+$string['cannotdownload'] = 'Cannot download this file';
+$string['cannotdownloaddir'] = 'Cannot download this folder';
+$string['cannotinitplugin'] = 'Call plugin_init failed';
+$string['cannotunzipcontentunreadable'] = 'Cannot unzip this file because the contents of the file cannot be read.';
+$string['cannotunzipextractfileerror'] = 'Cannot unzip this file because one or more of its files cannot be read.';
+$string['cannotunzipquotaexceeded'] = 'Cannot unzip this file because the maximum size allowed in this draft area will be exceeded.';
+$string['cleancache'] = 'Clean my cache files';
+$string['close'] = 'Close';
+$string['commonrepositorysettings'] = 'Common repository settings';
+$string['configallowexternallinks'] = 'This option enables all users to choose whether or not external media is copied into Moodle or not. If this is off then media is always copied into Moodle (this is usually best for overall data integrity and security).  If this is on then users can choose each time they add media to a text.';
+$string['configcacheexpire'] = 'The amount of time that file listings are cached locally (in seconds) when browsing external repositories.';
+$string['configgetfiletimeout'] = 'Timeout in seconds for downloading an external file into Moodle.';
+$string['configsaved'] = 'Configuration saved!';
+$string['configsyncfiletimeout'] = 'Timeout in seconds for synchronising the external file size.';
+$string['configsyncimagetimeout'] = 'Timeout in seconds for downloading an image file from external repository during synchronisation.';
+$string['confirmdelete'] = 'Are you sure you want to delete the repository {$a}? If you choose "Continue and download", file references to external contents will be downloaded to Moodle. This could take a long time to process.';
+$string['confirmdeletefile'] = 'Are you sure you want to delete this file?';
+$string['confirmdeleteselectedfile'] = 'Are you sure you want to delete the selected {$a} file(s)?';
+$string['confirmrenamefile'] = 'Are you sure you want to rename/move this file?';
+$string['confirmdeletefilewithhref'] = 'Are you sure you want to delete this file? There are {$a} links to this file. If you proceed then locations which currently link to the file will be automatically updated to use a copy of the file instead.';
+$string['confirmdeletefolder'] = 'Are you sure you want to delete this folder? All files and subfolders will be deleted.';
+$string['confirmremove'] = 'Are you sure you want to remove this repository plugin, its options and <strong>all of its instances</strong> - {$a}? If you choose "Continue and download", file references to external contents will be downloaded to Moodle. This could take a long time to process.';
+$string['confirmrenamefolder'] = 'Are you sure you want to move/rename this folder? Any locations which currently link to files in this folder will be automatically updated to use copies of the file instead.';
+$string['continueuninstall'] = 'Continue';
+$string['continueuninstallanddownload'] = 'Continue and download';
+$string['copying'] = 'Copying';
+$string['create'] = 'Create';
+$string['createfolderfail'] = 'Fail to create this folder';
+$string['createfoldersuccess'] = 'Create folder successfully';
+$string['createinstance'] = 'Create a repository instance';
+$string['createrepository'] = 'Create a repository instance';
+$string['createxxinstance'] = 'Create "{$a}" instance';
+$string['date'] = 'Date';
+$string['datecreated'] = 'Created';
+$string['deleted'] = 'Repository deleted';
+$string['deleterepository'] = 'Delete this repository';
+$string['detailview'] = 'View details';
+$string['dimensions'] = 'Dimensions';
+$string['disabled'] = 'Disabled';
+$string['displayasdetails'] = 'Display as file details';
+$string['displayasicons'] = 'Display as file icons';
+$string['displayastree'] = 'Display as file tree';
+$string['displaydetails'] = 'Display folder with file details';
+$string['displayicons'] = 'Display folder with file icons';
+$string['displaytree'] = 'Display folder as file tree';
+$string['download'] = 'Download';
+$string['downloadallfiles'] = 'Download all files';
+$string['downloadfolder'] = 'Download all';
+$string['downloadsucc'] = 'The file has been downloaded successfully';
+$string['draftareanofiles'] = 'Cannot be downloaded because there is no files attached';
+$string['editrepositoryinstance'] = 'Edit repository instance';
+$string['emptylist'] = 'Empty list';
+$string['emptytype'] = 'Cannot create repository type: type name is empty';
+$string['enablecourseinstances'] = 'Allow users to add a repository instance into the course';
+$string['enableuserinstances'] = 'Allow users to add a repository instance into the user context';
+$string['enter'] = 'Enter';
+$string['entername'] = 'Please enter folder name';
+$string['enternewname'] = 'Please enter the new file name';
+$string['error'] = 'An unknown error occurred!';
+$string['errordoublereference'] = 'Unable to overwrite file with a link because links to this file already exist.';
+$string['errornotyourfile'] = 'You can only pick files which you added.';
+$string['erroruniquename'] = 'Repository instance name should be unique';
+$string['errorpostmaxsize'] = 'The file you tried to upload is too large for the server to process.';
+$string['errorwhilecommunicatingwith'] = 'Error while communicating with the repository \'{$a}\'.';
+$string['errorwhiledownload'] = 'An error occurred while downloading the file: {$a}';
+$string['existingrepository'] = 'This repository already exists';
+$string['federatedsearch'] = 'Federated search';
+$string['fileexists'] = 'File name already being used, please use another name';
+$string['fileexistsdialog_editor'] = 'A file with that name has already been attached to the text you are editing.';
+$string['fileexistsdialog_filemanager'] = 'A file with that name has already been attached';
+$string['fileexistsdialogheader'] = 'File exists';
+$string['filename'] = 'Filename';
+$string['filenotnull'] = 'You must select a file to upload.';
+$string['filesaved'] = 'The file has been saved';
+$string['filepicker'] = 'File picker';
+$string['filesizenull'] = 'File size cannot be determined';
+$string['folderexists'] = 'Folder name already being used, please use another name';
+$string['foldernotfound'] = 'Folder not found';
+$string['folderrecurse'] = 'Folder cannot be moved to its own subfolder.';
+$string['getfile'] = 'Select this file';
+$string['getfiletimeout'] = 'Get file timeout';
+$string['help'] = 'Help';
+$string['choosealink'] = 'Choose a link...';
+$string['chooselicense'] = 'Choose licence';
+$string['chooselicense_help'] = 'Follow these links for further information on the available licence options:';
+$string['createfolder'] = 'Create folder';
+$string['iconview'] = 'View as icons';
+$string['imagesize'] = '{$a->width} x {$a->height} px';
+$string['instance'] = 'instance';
+$string['instancedeleted'] = 'Instance deleted';
+$string['instances'] = 'Repository instances';
+$string['instancesforsite'] = '{$a} Site-wide common instance(s)';
+$string['instancesforcourses'] = '{$a} Course-wide common instance(s)';
+$string['instancesforusers'] = '{$a} User private instance(s)';
+$string['invalidjson'] = 'Invalid JSON string';
+$string['invalidplugin'] = 'Invalid repository {$a} plugin';
+$string['invalidfiletype'] = '{$a} filetype cannot be accepted.';
+$string['invalidrepositoryid'] = 'Invalid repository ID';
+$string['invalidparams'] = 'Invalid parameters';
+$string['isactive'] = 'Active?';
+$string['keyword'] = 'Keyword';
+$string['lastmodified'] = 'Last modified';
+$string['license'] = 'Licence';
+$string['linkexternal'] = 'Link external';
+$string['listview'] = 'View as list';
+$string['loading'] = 'Loading...';
+$string['login'] = 'Log in to your account';
+$string['logintoaccount'] = 'Log in to your {$a} account';
+$string['logout'] = 'Logout';
+$string['lostsource'] = 'Error. Source is missing. {$a}';
+$string['makefileinternal'] = 'Make a copy of the file';
+$string['makefilelink'] = 'Link to the external file';
+$string['makefilereference'] = 'Link to the file';
+$string['makefilecontrolledlink'] = 'Create an access controlled link to the file';
+$string['manage'] = 'Manage repositories';
+$string['manageinstances'] = 'Manage instances';
+$string['manageurl'] = 'Manage';
+$string['manageuserrepository'] = 'Manage individual repository';
+$string['missingsourcekey'] = 'The source key is missing. This key must also be provided to retrieve the file.';
+$string['moving'] = 'Moving';
+$string['name'] = 'Name';
+$string['newfolder'] = 'New folder';
+$string['newfoldername'] = 'New folder name';
+$string['noenter'] = 'Nothing entered';
+$string['nofilesattached'] = 'No files attached';
+$string['nofilesavailable'] = 'No files available';
+$string['nofilesselected'] = 'No files selected';
+$string['nolicenses'] = 'There are no licences available';
+$string['nomorefiles'] = 'No more attachments allowed';
+$string['nopathselected'] = 'No destination path select yet (double click tree node to select)';
+$string['nopermissiontoaccess'] = 'No permission to access this repository.';
+$string['noresult'] = 'No search result';
+$string['norepositoriesavailable'] = 'Sorry, none of your current repositories can return files in the required format.';
+$string['norepositoriesexternalavailable'] = 'Sorry, none of your current repositories can return external files.';
+$string['notyourinstances'] = 'You can not view/edit repository instances of another user';
+$string['off'] = 'Enabled but hidden';
+$string['original'] = 'Original';
+$string['originalextensionchange'] = 'The original file extension has been modified as a part of the file name change. Changing the extension from ".{$a->originalextension}" to ".{$a->newextension}" may result in a file which cannot be opened.';
+$string['originalextensionremove'] = 'The original file extension has been removed as a part of the file name change. Removing the extension ".{$a}" is likely to result in a file which cannot be opened.';
+$string['openpicker'] = 'Choose a file...';
+$string['operation'] = 'Operation';
+$string['on'] = 'Enabled and visible';
+$string['overwrite'] = 'Overwrite';
+$string['overwriteall'] = 'Overwrite all';
+$string['path'] = 'Path';
+$string['plugin'] = 'Repository plugins';
+$string['pluginerror'] = 'Errors in repository plugin.';
+$string['popup'] = 'Click "Login" button to log in';
+$string['popupblockeddownload'] = 'The downloading window is blocked, please allow the popup window, and try again.';
+$string['preview'] = 'Preview';
+$string['privatefilesof'] = '{$a} Private files';
+$string['readonlyinstance'] = 'You cannot edit/delete a read-only instance';
+$string['referencesexist'] = 'There are {$a} links to this file';
+$string['referenceslist'] = 'Links';
+$string['refresh'] = 'Refresh';
+$string['refreshnonjsfilepicker'] = 'Please close this window and refresh non-javascript file picker';
+$string['removed'] = 'Repository removed';
+$string['renameall'] = 'Rename all';
+$string['renameto'] = 'Rename to "{$a}"';
+$string['repositories'] = 'Repositories';
+$string['repository'] = 'Repository';
+$string['repositorycourse'] = 'Course repositories';
+$string['repositoryicon'] = 'Repository icon';
+$string['repositoryerror'] = 'Remote repository returned error: {$a}';
+$string['save'] = 'Save';
+$string['saveas'] = 'Save as';
+$string['saved'] = 'Saved';
+$string['saving'] = 'Saving';
+$string['automatedbackup'] = 'Automated backups';
+$string['search'] = 'Search';
+$string['searching'] = 'Search in';
+$string['searchrepo'] = 'Search repository';
+$string['select'] = 'Select';
+$string['settings'] = 'Settings';
+$string['setupdefaultplugins'] = 'Setting up default repository plugins';
+$string['setmainfile'] = 'Set main file';
+$string['setmainfile_help'] = 'If there are multiple files in the folder, the main file is the one that appears on the view page. Other files such as images or videos may be embedded in it. In filemanager the main file is indicated with a title in bold.';
+$string['siteinstances'] = 'Repositories instances of the site';
+$string['size'] = 'Size';
+$string['sourcekeymismatch'] = 'The source URL does not match the source key.';
+$string['submit'] = 'Submit';
+$string['sync'] = 'Sync';
+$string['syncfiletimeout'] = 'Sync file timeout';
+$string['syncimagetimeout'] = 'Sync image timeout';
+$string['thumbview'] = 'View as icons';
+$string['title'] = 'Choose a file...';
+$string['type'] = 'Type';
+$string['typenotvisible'] = 'Type not visible';
+$string['unknownoriginal'] = 'Unknown';
+$string['upload'] = 'Upload this file';
+$string['uploading'] = 'Uploading...';
+$string['uploadsucc'] = 'The file has been uploaded successfully';
+$string['unknownsource'] = 'Unknown source';
+$string['undisclosedsource'] = '(Undisclosed)';
+$string['undisclosedreference'] = '(Undisclosed)';
+$string['uselatestfile'] = 'Use latest file';
+$string['usercontextrepositorydisabled'] = 'You cannot edit this repository in user context';
+$string['usenonjsfilemanager'] = 'Open file manager in new window';
+$string['usenonjsfilepicker'] = 'Open file picker in new window';
+$string['unzipped'] = 'Unzipped successfully';
+$string['wrongcontext'] = 'You cannot access to this context';
+$string['xhtmlerror'] = 'You are probably using an XHTML strict header. Certain YUI components don\'t work in this mode; please turn it off.';
+$string['ziped'] = 'Compress folder successfully';
+$string['privacy:metadata:repository'] = 'The Repository component stores the repository types within the core subsystem.';
+$string['privacy:metadata:repository_instances'] = 'The Repository plugins component stores user repository instances data within the core subsystem.';
+$string['privacy:metadata:repository_instances:name'] = 'The custom name of the repository instance.';
+$string['privacy:metadata:repository_instances:typeid'] = 'The ID type of the repository instance.';
+$string['privacy:metadata:repository_instances:userid'] = 'The ID of the user owning the repository instance.';
+$string['privacy:metadata:repository_instances:username'] = 'The optional username configured for the repository instance.';
+$string['privacy:metadata:repository_instances:password'] = 'The optional password configured for the repository instance.';
+$string['privacy:metadata:repository_instances:timecreated'] = 'The date/time of creation for the repository instance.';
+$string['privacy:metadata:repository_instances:timemodified'] = 'The date/time of modification of the repository instance.';

@@ -1,0 +1,13 @@
+<?php
+// Beispiel: CSV aus Workplace in Moodle importieren
+require_once('config.php'); // Moodle-Konfig
+$csv_file = 'workplace_export.csv';
+$handle = fopen($csv_file, 'r');
+while (($data = fgetcsv($handle)) !== FALSE) {
+    // Verarbeiten: z.B. als Forum-Post einfügen
+    $post = new stdClass();
+    $post->message = $data[0]; // Beispiel: Post-Inhalt
+    // Moodle-Funktion aufrufen, um zu speichern
+}
+fclose($handle);
+?>

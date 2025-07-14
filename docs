@@ -1,0 +1,8 @@
+# Moodle Lehrmittelintegration mit Workplace-Daten
+## Import-Schritte:
+1. Export aus Workplace (siehe Meta-Guide).
+2. Lade Dateien hier hoch.
+3. Nutze import_workplace.php für Moodle-Integration.
+## Verknüpfung zu LMI:
+- Moodle-Kurse: Importiere in bestehende Module.
+- GitHub (Holyrosarychurch): Linke zu Code-Repos.

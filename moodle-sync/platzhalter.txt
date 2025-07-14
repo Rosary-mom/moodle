@@ -1,0 +1,9 @@
+# Proclaim Integration für Moodle
+Dieses Repo synchronisiert Proclaim-Skripte mit Moodle für Lehrmittel.
+
+## Synchronisation:
+- Exportiere Slides als JSON/PDF.
+- Verwende roadmap.php für HTML-Ausgaben.
+- Integriere in Moodle via Git Submodules oder Upload.
+
+## BBB-Link: Nutze OAuth-App für Auth in BBB-Sessions.

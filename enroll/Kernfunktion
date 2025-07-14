@@ -1,0 +1,24 @@
+<?php
+class enrol_discordenrol_plugin extends enrol_plugin {
+    public function allow_enrol(stdClass $instance) {
+        return true;  // Erlaube Enrolment
+    }
+
+    public function enrol_user(stdClass $instance, $userid, $roleid = null, $timestart = 0, $timeend = 0, $status = null) {
+        // Discord-Integration: API-Call simulieren (ersetzen Sie mit echtem Discord-Webhook)
+        $discord_token = get_config('enrol_discordenrol', 'discord_token');  // Aus Settings
+        if ($this->validate_discord_join($userid, $discord_token)) {
+            parent::enrol_user($instance, $userid, $roleid, $timestart, $timeend, $status);
+            return true;
+        }
+        return false;
+    }
+
+    private function validate_discord_join($userid, $token) {
+        // Beispiel: Überprüfen, ob User Discord-Server gejoined hat (nutzen Sie discord.js oder cURL)
+        $response = file_get_contents("https://discord.com/api/v10/guilds/YOUR_GUILD_ID/members/$userid", false, stream_context_create([
+            'http' => ['header' => "Authorization: Bot $token"]
+        ]));
+        return strpos($response, '"joined_at"') !== false;  // True, wenn gejoined
+    }
+}

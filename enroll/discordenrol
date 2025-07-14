@@ -1,0 +1,10 @@
+enrol/discordenrol/
+|-- db
+|   `-- access.php  // Berechtigungen definieren
+|-- lang
+|   `-- en
+|       `-- enrol_discordenrol.php  // Sprachstrings
+|-- lib.php  // Kernfunktionen
+|-- version.php  // Plugin-Metadaten
+|-- settings.php  // Optionale Einstellungen (z. B. Discord API-Key)
+|-- enrol.php  // Enrolment-Form (optional)

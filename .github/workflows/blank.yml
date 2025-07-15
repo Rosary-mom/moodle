@@ -24,23 +24,16 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # Der Step für Submodule-Update
+      # Angepasster Step für Submodule-Update (mit --init für Ersteinrichtung)
       - name: Update Submodules
-        run: git submodule update --remote  # Optional: -- proclaim-integrations für spezifisch
-
-      # Der neue erweiterte Step für Roadmap-Generierung (hier eingefügt)
-      - name: Generate Roadmaps
-        run: php proclaim-integrations/batch-roadmap.php  # Passe den Pfad/Skript-Namen bei Bedarf an
+        run: git submodule update --init --remote  # --init hinzugefügt, um Mapping zu handhaben
 
       # Runs a single command using the runners shell
       - name: Run a one-line script
-        run: echo Hello, ROSARY®©™ world!
+        run: echo Hello, world!
 
       # Runs a set of commands using the runners shell
       - name: Run a multi-line script
-        run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
         run: |
           echo Add other actions to build,
           echo test, and deploy your project.

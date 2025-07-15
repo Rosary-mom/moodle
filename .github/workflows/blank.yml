@@ -1,5 +1,5 @@
 # This is a basic workflow to help you get started with Actions
-name: Update Submodules and Build
+name: CI
 
 # Controls when the workflow will run
 on:
@@ -24,16 +24,23 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # Der eingefügte Step für Submodule-Update (hier platziert, nach Checkout)
+      # Der Step für Submodule-Update
       - name: Update Submodules
-        run: git submodule update --remote  # Fügt -- proclaim-integrations hinzu, falls spezifisch
+        run: git submodule update --remote  # Optional: -- proclaim-integrations für spezifisch
+
+      # Der neue erweiterte Step für Roadmap-Generierung (hier eingefügt)
+      - name: Generate Roadmaps
+        run: php proclaim-integrations/batch-roadmap.php  # Passe den Pfad/Skript-Namen bei Bedarf an
 
       # Runs a single command using the runners shell
       - name: Run a one-line script
-        run: echo Hello, ROSARY world!
+        run: echo Hello, ROSARY®©™ world!
 
       # Runs a set of commands using the runners shell
       - name: Run a multi-line script
+        run: |
+          echo Add other actions to build,
+          echo test, and deploy your project.
         run: |
           echo Add other actions to build,
           echo test, and deploy your project.
